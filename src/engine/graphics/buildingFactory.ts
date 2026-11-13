@@ -16,8 +16,18 @@ export interface BuildingMaterialLibrary {
   terracottaPot: THREE.MeshStandardMaterial;
   forgeEmber: THREE.MeshStandardMaterial;
   irrigationWater: THREE.MeshStandardMaterial;
+  darkInterior: THREE.MeshBasicMaterial;
   contactShadowMat: THREE.MeshBasicMaterial;
   dispose: () => void;
+}
+
+export function getConstructionStageFromProgress(progress: number): 1 | 2 | 3 | 4 | 5 {
+  const p = Math.max(0, Math.min(1, progress));
+  if (p < 0.18) return 1;
+  if (p < 0.38) return 2;
+  if (p < 0.6) return 3;
+  if (p < 0.82) return 4;
+  return 5;
 }
 
 export function createBuildingMaterialLibrary(
@@ -124,6 +134,10 @@ export function createBuildingMaterialLibrary(
     bumpScale: 0.04,
   });
 
+  const darkInterior = new THREE.MeshBasicMaterial({
+    color: new THREE.Color('#140d08'),
+  });
+
   const contactShadowMat = new THREE.MeshBasicMaterial({
     map: textures.contactShadow,
     transparent: true,
@@ -143,6 +157,7 @@ export function createBuildingMaterialLibrary(
     terracottaPot,
     forgeEmber,
     irrigationWater,
+    darkInterior,
     contactShadowMat,
     dispose: () => {
       masonry.dispose();
@@ -156,6 +171,7 @@ export function createBuildingMaterialLibrary(
       terracottaPot.dispose();
       forgeEmber.dispose();
       irrigationWater.dispose();
+      darkInterior.dispose();
       contactShadowMat.dispose();
     },
   };
@@ -167,6 +183,14 @@ function enableShadows(mesh: THREE.Mesh, cast = true, receive = true): THREE.Mes
   return mesh;
 }
 
+function tagStage<T extends THREE.Object3D>(obj: T, stage: 1 | 2 | 3 | 4 | 5): T {
+  obj.userData.buildStage = stage;
+  if (obj.userData.baseScaleY === undefined) {
+    obj.userData.baseScaleY = obj.scale.y;
+  }
+  return obj;
+}
+
 function addBannerPole(
   parent: THREE.Group,
   x: number,
@@ -175,22 +199,23 @@ function addBannerPole(
   height: number,
   mats: BuildingMaterialLibrary,
 ): void {
-  const pole = enableShadows(
-    new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, height, 8), mats.timber),
+  const pole = tagStage(
+    enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, height, 8), mats.timber)),
+    5,
   );
   pole.position.set(x, y + height * 0.5, z);
   parent.add(pole);
 
-  const finial = enableShadows(
-    new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), mats.metalTrim),
+  const finial = tagStage(
+    enableShadows(new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), mats.metalTrim)),
+    5,
   );
   finial.position.set(x, y + height + 0.12, z);
   parent.add(finial);
 
-  const cloth = enableShadows(
-    new THREE.Mesh(new THREE.PlaneGeometry(0.75, 1.35, 2, 3), mats.banner),
-    true,
-    false,
+  const cloth = tagStage(
+    enableShadows(new THREE.Mesh(new THREE.PlaneGeometry(0.75, 1.35, 2, 3), mats.banner), true, false),
+    5,
   );
   cloth.position.set(x + 0.38, y + height - 0.75, z);
   parent.add(cloth);
@@ -212,9 +237,10 @@ function addClayVessels(
   ];
   const latheGeo = new THREE.LatheGeometry(profile, 10);
   for (let i = 0; i < 2; i++) {
-    const pot = enableShadows(new THREE.Mesh(latheGeo, mats.terracottaPot));
+    const pot = tagStage(enableShadows(new THREE.Mesh(latheGeo, mats.terracottaPot)), 5);
     pot.position.set(x + i * 0.45, 0, z + (i % 2) * 0.28);
     pot.scale.setScalar(0.85 + i * 0.2);
+    pot.userData.baseScaleY = pot.scale.y;
     parent.add(pot);
   }
 }
@@ -231,7 +257,7 @@ function addToronBeams(
   beamGeo.rotateX(Math.PI / 2);
   for (const rowY of [baseY + height * 0.55, baseY + height * 0.82]) {
     for (const bx of [-width * 0.32, 0, width * 0.32]) {
-      const b = enableShadows(new THREE.Mesh(beamGeo, mats.timber));
+      const b = tagStage(enableShadows(new THREE.Mesh(beamGeo, mats.timber)), 5);
       b.position.set(bx, rowY, 0);
       parent.add(b);
     }
@@ -308,20 +334,62 @@ export function syncBuildingConstructionVisual(
   if (!completedBody || !scaffolding) return;
 
   if (entity.constructionState === 'planned') {
-    completedBody.visible = false;
-    scaffolding.visible = true;
-    scaffolding.scale.set(1, 0.48, 1);
-  } else if (entity.constructionState === 'under_construction') {
-    const prog = Math.max(0.05, Math.min(1, entity.constructionProgress));
+    // Stage 0: staked foundation outline + scaffolding poles
     completedBody.visible = true;
-    completedBody.scale.set(1, 0.2 + 0.8 * prog, 1);
+    for (const child of completedBody.children) {
+      const st = (child.userData.buildStage as number | undefined) ?? 3;
+      const baseY = (child.userData.baseScaleY as number | undefined) ?? 1;
+      child.visible = st === 1;
+      child.scale.y = baseY * (st === 1 ? 0.55 : 1);
+    }
     scaffolding.visible = true;
-    scaffolding.scale.set(1, 0.55 + 0.45 * prog, 1);
+    scaffolding.scale.set(1, 0.42, 1);
+  } else if (entity.constructionState === 'under_construction') {
+    const prog = Math.max(0.03, Math.min(0.999, entity.constructionProgress));
+    const activeStage = getConstructionStageFromProgress(prog);
+    const stageBounds = [0, 0.18, 0.38, 0.6, 0.82, 1.0];
+    const startP = stageBounds[activeStage - 1];
+    const endP = stageBounds[activeStage];
+    const subProg = Math.max(0.18, Math.min(1, (prog - startP) / Math.max(0.01, endP - startP)));
+
+    completedBody.visible = true;
+    completedBody.scale.set(1, 1, 1);
+    for (const child of completedBody.children) {
+      const st = (child.userData.buildStage as number | undefined) ?? inferPartStage(child);
+      const baseY = (child.userData.baseScaleY as number | undefined) ?? 1;
+      if (st < activeStage) {
+        child.visible = true;
+        child.scale.y = baseY;
+      } else if (st === activeStage) {
+        child.visible = true;
+        child.scale.y = baseY * (0.25 + 0.75 * subProg);
+      } else {
+        child.visible = false;
+      }
+    }
+    scaffolding.visible = true;
+    scaffolding.scale.set(1, 0.52 + 0.48 * prog, 1);
   } else {
     completedBody.visible = true;
     completedBody.scale.set(1, 1, 1);
+    for (const child of completedBody.children) {
+      const baseY = (child.userData.baseScaleY as number | undefined) ?? 1;
+      child.visible = true;
+      child.scale.y = baseY;
+    }
     scaffolding.visible = false;
   }
+}
+
+/**
+ * Fallback spatial/material stage classifier for sub-meshes without explicit tagStage().
+ * Stage 1: Plinth/foundation (low Y), Stage 2: Pillars/posts, Stage 3: Walls, Stage 4: Roofs/canopies, Stage 5: Finials/banners/props.
+ */
+function inferPartStage(obj: THREE.Object3D): 1 | 2 | 3 | 4 | 5 {
+  if (obj.position.y <= 0.22) return 1;
+  if (obj.position.y <= 1.08) return 2;
+  if (obj.position.y < 2.35) return 3;
+  return 4;
 }
 
 export function buildProceduralStructure(
@@ -352,6 +420,14 @@ export function buildProceduralStructure(
 
   rootGroup.userData.completedBody = group;
   rootGroup.userData.scaffolding = scaffolding;
+
+  if (entity.archetype === 'blacksmith_workshop') {
+    rootGroup.userData.smokeEmitterLocal = new THREE.Vector3(-1.35, 3.85, -0.5);
+  } else if (entity.archetype === 'watch_post') {
+    rootGroup.userData.smokeEmitterLocal = new THREE.Vector3(0, 6.25, 0);
+  } else if (entity.archetype === 'royal_palace' || entity.archetype === 'royal_compound') {
+    rootGroup.userData.smokeEmitterLocal = new THREE.Vector3(0, 5.2, -0.4);
+  }
 
   switch (entity.archetype) {
     case 'royal_compound': {
@@ -660,24 +736,34 @@ export function buildProceduralStructure(
         group.add(finial);
       }
 
-      // Wooden door posts, lintel and plank door
+      // Recessed dark doorway alcove & wooden posts/lintel/plank door
+      const doorRecess = tagStage(
+        new THREE.Mesh(new THREE.BoxGeometry(0.84, 1.48, 0.14), mats.darkInterior),
+        3,
+      );
+      doorRecess.position.set(0, 0.94, 1.97);
+      group.add(doorRecess);
+
       for (const sx of [-0.48, 0.48]) {
-        const jamb = enableShadows(
-          new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.55, 0.45), mats.timber),
+        const jamb = tagStage(
+          enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.55, 0.45), mats.timber)),
+          2,
         );
         jamb.position.set(sx, 0.95, 2.02);
         group.add(jamb);
       }
-      const lintel = enableShadows(
-        new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.22, 0.52), mats.timber),
+      const lintel = tagStage(
+        enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.22, 0.52), mats.timber)),
+        3,
       );
       lintel.position.set(0, 1.78, 2.05);
       group.add(lintel);
 
-      const doorPanel = enableShadows(
-        new THREE.Mesh(new THREE.BoxGeometry(0.78, 1.45, 0.08), mats.timber),
+      const doorPanel = tagStage(
+        enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.78, 1.45, 0.08), mats.timber)),
+        5,
       );
-      doorPanel.position.set(0, 0.95, 1.95);
+      doorPanel.position.set(0, 0.95, 1.93);
       group.add(doorPanel);
 
       // Entrance clay water urns & firewood pile
@@ -1551,12 +1637,12 @@ export function createPlacementGhostVisual(): PlacementGhostVisual {
   const root = new THREE.Group();
   root.visible = false;
 
-  const ringGeo = new THREE.RingGeometry(0.86, 1.0, 32);
+  const ringGeo = new THREE.RingGeometry(0.86, 1.0, 36);
   ringGeo.rotateX(-Math.PI / 2);
   const ringMat = new THREE.MeshBasicMaterial({
     color: new THREE.Color('#4ade80'),
     transparent: true,
-    opacity: 0.85,
+    opacity: 0.9,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
@@ -1565,22 +1651,45 @@ export function createPlacementGhostVisual(): PlacementGhostVisual {
   footprintRing.renderOrder = 6;
   root.add(footprintRing);
 
-  const bodyGeo = new THREE.CylinderGeometry(0.78, 0.85, 2.4, 12);
+  const innerRingGeo = new THREE.RingGeometry(0.45, 0.52, 24);
+  innerRingGeo.rotateX(-Math.PI / 2);
+  const innerRingMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color('#86efac'),
+    transparent: true,
+    opacity: 0.5,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const innerRing = new THREE.Mesh(innerRingGeo, innerRingMat);
+  innerRing.position.y = 0.07;
+  innerRing.renderOrder = 6;
+  root.add(innerRing);
+
+  const bodyGeo = new THREE.CylinderGeometry(0.78, 0.85, 2.4, 14);
   bodyGeo.translate(0, 1.2, 0);
   const bodyMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color('#4ade80'),
     emissive: new THREE.Color('#166534'),
-    emissiveIntensity: 0.45,
+    emissiveIntensity: 0.55,
     transparent: true,
-    opacity: 0.45,
+    opacity: 0.36,
     depthWrite: false,
   });
   const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
   bodyMesh.renderOrder = 5;
   root.add(bodyMesh);
 
-  // Direction indicator arrow on front (+Z) so rotation is clear
-  const arrowGeo = new THREE.ConeGeometry(0.28, 0.7, 6);
+  const wireGeo = new THREE.EdgesGeometry(bodyGeo);
+  const wireMat = new THREE.LineBasicMaterial({
+    color: new THREE.Color('#bbf7d0'),
+    transparent: true,
+    opacity: 0.85,
+  });
+  const wireMesh = new THREE.LineSegments(wireGeo, wireMat);
+  bodyMesh.add(wireMesh);
+
+  // Direction indicator arrow on front (+Z) so entrance orientation is crystal-clear
+  const arrowGeo = new THREE.ConeGeometry(0.32, 0.78, 6);
   arrowGeo.rotateX(Math.PI / 2);
   const arrowMesh = new THREE.Mesh(arrowGeo, ringMat);
   arrowMesh.position.set(0, 0.25, 1.15);
@@ -1593,10 +1702,14 @@ export function createPlacementGhostVisual(): PlacementGhostVisual {
     setValid: (valid: boolean) => {
       if (valid) {
         ringMat.color.set('#4ade80');
+        innerRingMat.color.set('#86efac');
+        wireMat.color.set('#bbf7d0');
         bodyMat.color.set('#4ade80');
         bodyMat.emissive.set('#15803d');
       } else {
         ringMat.color.set('#f87171');
+        innerRingMat.color.set('#fca5a5');
+        wireMat.color.set('#fecaca');
         bodyMat.color.set('#ef4444');
         bodyMat.emissive.set('#991b1b');
       }
@@ -1605,6 +1718,7 @@ export function createPlacementGhostVisual(): PlacementGhostVisual {
       const bp = BUILDING_CATALOG[archetype];
       const r = bp.footprintRadius;
       footprintRing.scale.set(r, 1, r);
+      innerRing.scale.set(r, 1, r);
       const hScale = archetype === 'cultivated_farm' ? 0.25 : archetype === 'watch_post' ? 2.4 : 1.1;
       bodyMesh.scale.set(r * 0.85, hScale, r * 0.85);
       arrowMesh.position.set(0, 0.28, r + 0.45);
@@ -1612,8 +1726,12 @@ export function createPlacementGhostVisual(): PlacementGhostVisual {
     dispose: () => {
       ringGeo.dispose();
       ringMat.dispose();
+      innerRingGeo.dispose();
+      innerRingMat.dispose();
       bodyGeo.dispose();
       bodyMat.dispose();
+      wireGeo.dispose();
+      wireMat.dispose();
       arrowGeo.dispose();
     },
   };

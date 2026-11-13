@@ -2,8 +2,10 @@ import { KINGDOMS } from '../../config/kingdoms';
 import { REGIONS } from '../../config/regions';
 import { generateInitialSettlement } from '../../config/settlement';
 import {
+  AIDifficulty,
   BuildingEntity,
   CharacterEntity,
+  DiplomaticRelation,
   EnvironmentNodeEntity,
   GameMode,
   GameSettings,
@@ -12,7 +14,10 @@ import {
   RegionId,
   SaveGameData,
 } from '../../types/game';
+import { createInitialAIKingdomManager } from '../simulation/aiKingdomSim';
+import { ALL_KINGDOM_IDS, createInitialDiplomacyState } from '../simulation/diplomacySim';
 import { createInitialEconomyRuntime } from '../simulation/economySim';
+import { createInitialWorldEventState } from '../simulation/worldEventSim';
 
 export const SAVE_STORAGE_KEY = 'empires_of_akanu_save_v2';
 export const LEGACY_SAVE_STORAGE_KEY = 'empires_of_akanu_save_v1';
@@ -88,6 +93,7 @@ export function createDefaultSettings(): GameSettings {
     audio: {
       masterVolume: 0.75,
       musicVolume: 0.55,
+      ambienceVolume: 0.65,
       sfxVolume: 0.8,
       muted: false,
     },
@@ -100,6 +106,7 @@ export interface CreateSaveOptions {
   rulerName: string;
   regionId: RegionId;
   gameMode: GameMode;
+  difficultyLevel?: AIDifficulty;
   sandboxAbundantResources?: boolean;
   worldSeed?: number;
   settings?: GameSettings;
@@ -138,6 +145,20 @@ export function createNewKingdomSave(options: CreateSaveOptions): SaveGameData {
     resourceNodes: initialSettlement.resourceNodes,
   });
 
+  const difficulty = options.difficultyLevel ?? 'normal';
+  const aiInit = createInitialAIKingdomManager(
+    options.kingdomId,
+    difficulty,
+    undefined,
+    initialSettlement.capitalCenters,
+  );
+  const dipInit = createInitialDiplomacyState(options.kingdomId);
+  const diplomacyData = {} as Record<KingdomId, DiplomaticRelation[]>;
+  for (const kId of ALL_KINGDOM_IDS) {
+    diplomacyData[kId] = Object.values(dipInit.relations[kId] ?? {});
+  }
+  const eventInit = createInitialWorldEventState();
+
   return {
     version: CURRENT_SAVE_VERSION,
     savedAtIso: new Date().toISOString(),
@@ -147,6 +168,7 @@ export function createNewKingdomSave(options: CreateSaveOptions): SaveGameData {
     regionId: options.regionId,
     worldSeed: seed,
     gameMode: options.gameMode,
+    difficultyLevel: difficulty,
     progressionStage: ecoInit.progressionStage,
     resources: { ...ecoInit.resources },
     capacities: { ...ecoInit.capacities },
@@ -173,6 +195,9 @@ export function createNewKingdomSave(options: CreateSaveOptions): SaveGameData {
       characters: ecoInit.characters,
       resourceNodes: ecoInit.resourceNodes,
     }),
+    aiKingdomsData: Object.values(aiInit.kingdoms),
+    diplomacyData,
+    worldEventsData: eventInit.events,
   };
 }
 
@@ -227,8 +252,16 @@ export function validateSaveGameData(raw: unknown): SaveGameData | null {
     return null;
   }
 
+  const validDifficulties: AIDifficulty[] = ['easy', 'normal', 'hard', 'very_hard'];
+  const normalizedDifficulty: AIDifficulty = validDifficulties.includes(
+    candidate.difficultyLevel as AIDifficulty,
+  )
+    ? (candidate.difficultyLevel as AIDifficulty)
+    : 'normal';
+
   return {
     ...(candidate as SaveGameData),
+    difficultyLevel: normalizedDifficulty,
     version: CURRENT_SAVE_VERSION,
   };
 }
@@ -316,7 +349,8 @@ export class StoragePersistenceProvider implements PersistenceProvider {
       if (
         parsed.graphicsQuality !== 'low' &&
         parsed.graphicsQuality !== 'medium' &&
-        parsed.graphicsQuality !== 'high'
+        parsed.graphicsQuality !== 'high' &&
+        parsed.graphicsQuality !== 'ultra'
       ) {
         return fallback;
       }
@@ -329,6 +363,7 @@ export class StoragePersistenceProvider implements PersistenceProvider {
         audio: {
           masterVolume: parsed.audio?.masterVolume ?? fallback.audio.masterVolume,
           musicVolume: parsed.audio?.musicVolume ?? fallback.audio.musicVolume,
+          ambienceVolume: parsed.audio?.ambienceVolume ?? fallback.audio.ambienceVolume,
           sfxVolume: parsed.audio?.sfxVolume ?? fallback.audio.sfxVolume,
           muted: Boolean(parsed.audio?.muted),
         },

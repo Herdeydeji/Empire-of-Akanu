@@ -1,37 +1,66 @@
 import React, { useState } from 'react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Circle,
+  Coins,
+  Compass,
+  Crown,
+  Eye,
+  FlaskConical,
+  Hammer,
+  Handshake,
+  Home,
+  Menu,
+  RotateCcw,
+  RotateCw,
+  Save,
+  Scale,
+  ScrollText,
+  Settings,
+  Shield,
+  Swords,
+  Users,
+  Volume2,
+  VolumeX,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import { BUILDING_CATALOG, KINGDOM_ECONOMIC_BONUSES } from '../config/economy';
 import { KINGDOMS } from '../config/kingdoms';
+import { KINGDOM_MILITARY_BONUSES, MILITARY_UNIT_CATALOG } from '../config/military';
 import { REGIONS } from '../config/regions';
 import {
+  AIKingdomRuntime,
   BuildingArchetype,
   BuildingEntity,
   CharacterEntity,
   CivilianRole,
+  DiplomaticRelation,
   EconomyNotification,
+  KingdomId,
   MilitaryFormationType,
   MilitaryStance,
   MilitaryUnitClass,
   NavigationTab,
   PlacementPreviewState,
+  ProgressionStage,
   ResourceKey,
   SaveGameData,
   SelectableEntity,
   TouchCommandMode,
-} from '../types/game';
-import { KINGDOM_MILITARY_BONUSES, MILITARY_UNIT_CATALOG } from '../config/military';
-import { ConstructionPanel } from './ConstructionPanel';
-import { EconomyPanel } from './EconomyPanel';
-import { KingdomEmblem, ResourceIcon } from './KingdomEmblem';
-import { SelectionInspector } from './SelectionInspector';
-import { DiplomacyPanel } from './DiplomacyPanel';
-import { KingdomOverviewPanel } from './KingdomOverviewPanel';
-import {
-  AIKingdomRuntime,
-  DiplomaticRelation,
-  KingdomId,
   TreatyKind,
   WorldEventItem,
 } from '../types/game';
+import { ConstructionPanel } from './ConstructionPanel';
+import { DiplomacyPanel } from './DiplomacyPanel';
+import { EconomyPanel } from './EconomyPanel';
+import { KingdomEmblem, ResourceIcon } from './KingdomEmblem';
+import { KingdomOverviewPanel } from './KingdomOverviewPanel';
+import { SelectionInspector } from './SelectionInspector';
 
 interface GameHUDProps {
   gameData: SaveGameData;
@@ -49,6 +78,7 @@ interface GameHUDProps {
   onFocusSettlement: () => void;
   onCameraZoom: (delta: number) => void;
   onCameraRotate: (deltaYaw: number) => void;
+  onCameraPreset?: (preset: 'settlement' | 'overview' | 'battle') => void;
   onAssignOccupation: (role: CivilianRole, preferredResource?: ResourceKey | null) => void;
   onAdjustWorkforce: (role: CivilianRole, delta: 1 | -1) => void;
   onCancelVillagerTask: () => void;
@@ -75,16 +105,32 @@ interface GameHUDProps {
   diplomacyRelations?: Record<KingdomId, DiplomaticRelation>;
   worldEventsData?: WorldEventItem[];
   onProposeTreaty?: (targetId: KingdomId, kind: TreatyKind) => { accepted: boolean; reason: string };
+  onSendEnvoy?: (targetId: KingdomId) => { ok: boolean; reason: string };
+  onProposePeace?: (targetId: KingdomId) => { accepted: boolean; reason: string };
   onDeclareWar?: (targetId: KingdomId) => void;
 }
 
-const NAV_TABS: { id: NavigationTab; label: string; shortLabel: string }[] = [
-  { id: 'kingdom', label: 'Economy', shortLabel: 'Econ' },
-  { id: 'construction', label: 'Construction', shortLabel: 'Build' },
-  { id: 'military', label: 'Military', shortLabel: 'Army' },
-  { id: 'research', label: 'Research', shortLabel: 'Tech' },
-  { id: 'diplomacy', label: 'Diplomacy', shortLabel: 'Pacts' },
-  { id: 'trade', label: 'Trade', shortLabel: 'Trade' },
+const NAV_TABS: {
+  id: NavigationTab;
+  label: string;
+  shortLabel: string;
+  renderIcon: () => React.ReactNode;
+}[] = [
+  { id: 'kingdom', label: 'Economy', shortLabel: 'Econ', renderIcon: () => <Coins className="w-3.5 h-3.5 shrink-0" aria-hidden="true" /> },
+  { id: 'construction', label: 'Construction', shortLabel: 'Build', renderIcon: () => <Hammer className="w-3.5 h-3.5 shrink-0" aria-hidden="true" /> },
+  { id: 'military', label: 'Military', shortLabel: 'Army', renderIcon: () => <Swords className="w-3.5 h-3.5 shrink-0" aria-hidden="true" /> },
+  { id: 'research', label: 'Doctrine', shortLabel: 'Trait', renderIcon: () => <FlaskConical className="w-3.5 h-3.5 shrink-0" aria-hidden="true" /> },
+  { id: 'diplomacy', label: 'Diplomacy', shortLabel: 'Pacts', renderIcon: () => <Handshake className="w-3.5 h-3.5 shrink-0" aria-hidden="true" /> },
+  { id: 'trade', label: 'Trade', shortLabel: 'Trade', renderIcon: () => <Scale className="w-3.5 h-3.5 shrink-0" aria-hidden="true" /> },
+];
+
+const REALM_STAGES: { stage: ProgressionStage; requirement: string }[] = [
+  { stage: 'Village', requirement: 'Founding camp & gatherers' },
+  { stage: 'Settlement', requirement: '6+ citizens & core granary' },
+  { stage: 'Town', requirement: '12+ citizens & 4+ completed structures' },
+  { stage: 'Fortified City', requirement: '18+ citizens & martial garrison' },
+  { stage: 'Kingdom', requirement: '24+ citizens & Royal Palace built' },
+  { stage: 'Empire', requirement: '34+ citizens, palace & regional hegemony' },
 ];
 
 export const GameHUD: React.FC<GameHUDProps> = ({
@@ -102,6 +148,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onFocusSettlement,
   onCameraZoom,
   onCameraRotate,
+  onCameraPreset,
   onAssignOccupation,
   onAdjustWorkforce,
   onCancelVillagerTask,
@@ -115,7 +162,6 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onCancelRecruitment,
   onSetFormation,
   onSetStance,
-  onMilitaryAttack,
   onSelectMilitaryUnits,
   onDismissNotification,
   onSaveGame,
@@ -127,11 +173,14 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   diplomacyRelations,
   worldEventsData,
   onProposeTreaty,
+  onSendEnvoy,
+  onProposePeace,
   onDeclareWar,
 }) => {
   const [activeTab, setActiveTab] = useState<NavigationTab | null>(null);
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [showOverview, setShowOverview] = useState<boolean>(false);
+  const [activeCamPreset, setActiveCamPreset] = useState<'settlement' | 'overview' | 'battle'>('settlement');
 
   React.useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -149,16 +198,30 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
   const kingdom = KINGDOMS[gameData.kingdomId];
   const region = REGIONS[gameData.regionId];
-  const villagers = allEntities.filter((e) => e.category === 'character');
-  const completedMarkets = allEntities.filter(
-    (e) =>
+  const villagers = allEntities.filter(
+    (e): e is CharacterEntity =>
+      e.category === 'character' && e.kingdomId === gameData.kingdomId && !e.isMilitary,
+  );
+  const playerArmyCount = allEntities.filter(
+    (e) => e.category === 'character' && e.kingdomId === gameData.kingdomId && Boolean((e as CharacterEntity).militaryClass),
+  ).length;
+  const completedBuildings = allEntities.filter(
+    (e): e is BuildingEntity =>
       e.category === 'building' &&
-      e.archetype === 'market_courtyard' &&
+      e.kingdomId === gameData.kingdomId &&
       e.constructionState === 'completed',
-  ).length;
-  const activeTraders = allEntities.filter(
-    (e) => e.category === 'character' && e.role === 'Trader',
-  ).length;
+  );
+  const completedMarkets = completedBuildings.filter((b) => b.archetype === 'market_courtyard').length;
+  const hasCompletedPalace = completedBuildings.some((b) => b.archetype === 'royal_palace');
+  const activeTraders = villagers.filter((v) => v.role === 'Trader').length;
+
+  const isLowFoodAlert = gameData.population.foodSatisfaction < 50;
+  const atWarCount = Object.values(diplomacyRelations || {}).filter((rel) => rel.state === 'at_war').length;
+
+  const currentStageIndex = Math.max(
+    0,
+    REALM_STAGES.findIndex((s) => s.stage === gameData.progressionStage),
+  );
 
   const handleCycleVillager = () => {
     if (villagers.length === 0) return;
@@ -178,15 +241,24 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
   const handleBeginPlacement = (archetype: BuildingArchetype) => {
     onStartBuildingPlacement(archetype);
-    // Collapse the construction drawer automatically so the player has full 3D terrain visibility
+    // Collapse construction drawer automatically for clear 3D terrain visibility
     setActiveTab(null);
+  };
+
+  const handlePresetClick = (preset: 'settlement' | 'overview' | 'battle') => {
+    setActiveCamPreset(preset);
+    if (onCameraPreset) {
+      onCameraPreset(preset);
+    } else if (preset === 'settlement') {
+      onFocusSettlement();
+    }
   };
 
   return (
     <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between">
       {/* TOP STACK: RESOURCE HEADER + PLACEMENT BANNER + NOTIFICATIONS */}
       <div className="w-full flex flex-col items-center">
-        <div className="pointer-events-auto w-full bg-[#15100b]/96 border-b border-[#b98736]/40 px-3 sm:px-5 py-1.5 sm:py-2 shadow-lg">
+        <div className="pointer-events-auto w-full bg-[#171512]/96 border-b border-[#A77A32]/55 px-3 sm:px-5 py-1.5 sm:py-2 shadow-lg">
           <div className="flex items-center justify-between gap-2 sm:gap-4">
             {/* Left: Sovereign Kingdom Identity */}
             <div className="flex items-center gap-2.5 min-w-0">
@@ -195,15 +267,35 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 onClick={onFocusSettlement}
                 aria-label="Center camera on settlement"
                 title="Center camera on settlement"
-                className="shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+                className="shrink-0 cursor-pointer hover:opacity-90 transition-opacity duration-150"
               >
                 <KingdomEmblem kingdomId={kingdom.id} size={32} />
               </button>
               <div className="min-w-0">
-                <div className="font-display text-xs sm:text-sm font-bold text-[#fbf3e4] truncate">
-                  {gameData.playerKingdomName}
+                <div className="flex items-center gap-2">
+                  <div className="font-display text-xs sm:text-sm font-bold text-[#F2E8D5] truncate">
+                    {gameData.playerKingdomName}
+                  </div>
+                  {atWarCount > 0 && (
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#4a1816] border border-[#f87171]/60 text-[10px] font-semibold text-[#fca5a5] shrink-0 whitespace-nowrap"
+                      title="Active military conflict"
+                    >
+                      <Swords className="w-3 h-3" aria-hidden="true" />
+                      <span>At War ({atWarCount})</span>
+                    </span>
+                  )}
+                  {isLowFoodAlert && (
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#3b2610] border border-[#D4A64A]/65 text-[10px] font-semibold text-[#D4A64A] shrink-0 whitespace-nowrap"
+                      title="Food satisfaction below 50%"
+                    >
+                      <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+                      <span>Low Food</span>
+                    </span>
+                  )}
                 </div>
-                <div className="text-[11px] text-[#c9b593] truncate">
+                <div className="text-[11px] text-[#B8AA96] truncate">
                   {kingdom.name} · {region.name} · {gameData.progressionStage}
                 </div>
               </div>
@@ -236,17 +328,17 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                     <ResourceIcon type={item.key} size={16} />
                     <div className="leading-tight">
                       <div className="flex items-baseline gap-1">
-                        <span className="hidden 2xl:inline text-[11px] text-[#b8a586]">
+                        <span className="hidden 2xl:inline text-[11px] text-[#B8AA96]">
                           {item.label}
                         </span>
                         <span
                           className={`font-mono-num text-sm font-semibold ${
-                            isFull ? 'text-[#fbbf24]' : 'text-[#f7eedc]'
+                            isFull ? 'text-[#D4A64A]' : 'text-[#F2E8D5]'
                           }`}
                         >
                           {val}
                         </span>
-                        <span className="hidden lg:inline font-mono-num text-[11px] text-[#9c896d]">
+                        <span className="hidden lg:inline font-mono-num text-[11px] text-[#B8AA96]/75">
                           /{cap}
                         </span>
                       </div>
@@ -265,15 +357,15 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               })}
 
               <div
-                className="flex items-center gap-2 pl-3 border-l border-[#8f6c38]/30 shrink-0"
+                className="flex items-center gap-2 pl-3 border-l border-[#76513A]/60 shrink-0"
                 title={`Population ${gameData.population.current}/${gameData.population.capacity} · Happiness ${Math.round(gameData.population.happiness)}%`}
               >
                 <ResourceIcon type="population" size={16} />
                 <div className="leading-tight">
-                  <div className="font-mono-num text-sm font-semibold text-[#f7eedc]">
+                  <div className="font-mono-num text-sm font-semibold text-[#F2E8D5]">
                     {gameData.population.current}/{gameData.population.capacity}
                   </div>
-                  <div className="font-mono-num text-[10px] text-[#c9b593] leading-none">
+                  <div className="font-mono-num text-[10px] text-[#B8AA96] leading-none">
                     {Math.round(gameData.population.happiness)}% Happy
                   </div>
                 </div>
@@ -282,7 +374,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                     type="button"
                     onClick={() => onSelectVillagersByRole('idle')}
                     title="Select Idle / Unemployed Villagers"
-                    className="px-1.5 py-0.5 rounded bg-[#3a2814] hover:bg-[#4d351b] border border-[#e6be68]/45 font-mono-num text-[11px] font-semibold text-[#f6d27a] cursor-pointer"
+                    className="px-1.5 py-0.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/65 font-mono-num text-[11px] font-semibold text-[#D4A64A] transition-colors duration-150 cursor-pointer whitespace-nowrap"
                   >
                     {gameData.population.unemployedCount} Idle
                   </button>
@@ -295,7 +387,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               {saveToast && (
                 <span
                   role="status"
-                  className="hidden xl:inline text-xs text-[#e6be68] mr-1 whitespace-nowrap"
+                  className="hidden xl:inline text-xs text-[#D4A64A] mr-1 whitespace-nowrap"
                 >
                   {saveToast}
                 </span>
@@ -305,18 +397,21 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 onClick={() => setShowOverview(true)}
                 aria-label="World Intelligence Overview"
                 title="World Intelligence Ledger & History"
-                className="px-2.5 py-1 rounded bg-[#2b1f13] hover:bg-[#3d2b1a] border border-[#b98736]/45 text-xs font-semibold text-[#f8e5b6] cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/65 text-xs font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap min-h-[36px] sm:min-h-0"
               >
-                📜 World Overview
+                <ScrollText className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
+                <span className="hidden sm:inline">World Overview</span>
+                <span className="sm:hidden">World</span>
               </button>
               <button
                 type="button"
                 onClick={onSaveGame}
                 aria-label="Save Kingdom"
                 title="Save Kingdom"
-                className="hidden sm:inline-flex items-center justify-center px-2.5 py-1.5 rounded bg-[#241b13] hover:bg-[#33261a] border border-[#8f6c38]/40 text-xs font-medium text-[#ebdcc4] cursor-pointer whitespace-nowrap"
+                className="hidden sm:inline-flex items-center gap-1 justify-center px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
-                Save
+                <Save className="w-3.5 h-3.5 text-[#A77A32]" aria-hidden="true" />
+                <span>Save</span>
               </button>
               <button
                 type="button"
@@ -327,20 +422,12 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 }}
                 aria-label={audioMuted ? 'Unmute Audio' : 'Mute Audio'}
                 title={audioMuted ? 'Unmute Audio (M)' : 'Mute Audio (M)'}
-                className="w-8 h-8 inline-flex items-center justify-center rounded bg-[#241b13] hover:bg-[#33261a] border border-[#8f6c38]/40 text-xs text-[#f3ead8] cursor-pointer"
+                className="w-9 h-9 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
               >
                 {audioMuted ? (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M11 5L6 9H2v6h4l5 4V5z" />
-                    <line x1="23" y1="9" x2="17" y2="15" />
-                    <line x1="17" y1="9" x2="23" y2="15" />
-                  </svg>
+                  <VolumeX className="w-4 h-4 text-[#fca5a5]" aria-hidden="true" />
                 ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M11 5L6 9H2v6h4l5 4V5z" />
-                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                  </svg>
+                  <Volume2 className="w-4 h-4" aria-hidden="true" />
                 )}
               </button>
               <button
@@ -352,12 +439,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 }}
                 aria-label="Open Settings"
                 title="Settings"
-                className="w-8 h-8 inline-flex items-center justify-center rounded bg-[#241b13] hover:bg-[#33261a] border border-[#8f6c38]/40 text-xs text-[#f3ead8] cursor-pointer"
+                className="w-9 h-9 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
+                <Settings className="w-4 h-4" aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -368,9 +452,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 }}
                 aria-label="Pause Menu"
                 title="Pause Menu (Esc)"
-                className="px-2.5 h-8 inline-flex items-center justify-center rounded bg-[#2b2016] hover:bg-[#3a2b1d] border border-[#c98f32]/45 text-xs font-semibold text-[#f7eedc] cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center gap-1 px-2.5 h-9 sm:h-8 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/65 text-xs font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
-                Menu
+                <Menu className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
+                <span>Menu</span>
               </button>
             </div>
           </div>
@@ -378,7 +463,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           {/* Mobile (< md) Full 6-Stat Resource Strip: Zero Clipping */}
           <div
             aria-label="Mobile Kingdom Resources"
-            className="grid grid-cols-6 gap-1 md:hidden pt-1.5 mt-1.5 border-t border-[#8f6c38]/25 text-center"
+            className="grid grid-cols-6 gap-1 md:hidden pt-1.5 mt-1.5 border-t border-[#76513A]/45 text-center"
           >
             {(
               [
@@ -391,14 +476,14 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             ).map((item) => (
               <div key={item.key} className="flex items-center justify-center gap-1">
                 <ResourceIcon type={item.key} size={13} />
-                <span className="font-mono-num text-[11px] font-semibold text-[#f7eedc]">
+                <span className="font-mono-num text-[11px] font-semibold text-[#F2E8D5]">
                   {Math.round(item.val)}
                 </span>
               </div>
             ))}
             <div className="flex items-center justify-center gap-1">
               <ResourceIcon type="population" size={13} />
-              <span className="font-mono-num text-[11px] font-semibold text-[#f7eedc]">
+              <span className="font-mono-num text-[11px] font-semibold text-[#F2E8D5]">
                 {gameData.population.current}/{gameData.population.capacity}
               </span>
             </div>
@@ -410,10 +495,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           <div
             role="region"
             aria-label="Building Placement Controls"
-            className="pointer-events-auto mt-2 mx-2 px-3.5 py-2 rounded-md bg-[#16100b]/96 border border-[#c98f32]/65 shadow-xl flex flex-wrap items-center justify-center gap-2.5 text-xs"
+            className="pointer-events-auto mt-2 mx-2 px-3.5 py-2 rounded-md bg-[#171512]/96 border border-[#D4A64A]/75 shadow-xl flex flex-wrap items-center justify-center gap-2.5 text-xs"
           >
             <div className="flex items-center gap-2">
-              <span className="font-display font-bold text-[#fbf3e4]">
+              <span className="font-display font-bold text-[#F2E8D5]">
                 Placing {BUILDING_CATALOG[placementPreview.archetype].name}
               </span>
               <span
@@ -430,18 +515,19 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               <button
                 type="button"
                 onClick={onRotatePlacementPreview}
-                className="px-2.5 py-1 rounded bg-[#261c14] hover:bg-[#35271c] border border-[#8f6c38]/45 text-[#f3ead8] font-medium cursor-pointer"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
-                Rotate 45° (R)
+                <RotateCw className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
+                <span>Rotate 45° (R)</span>
               </button>
               <button
                 type="button"
                 disabled={!placementPreview.valid}
                 onClick={onConfirmPlacement}
-                className={`px-3 py-1 rounded font-semibold ${
+                className={`px-3 py-1.5 rounded font-semibold transition-colors duration-150 whitespace-nowrap ${
                   placementPreview.valid
-                    ? 'bg-[#2f854e] hover:bg-[#3a9c5e] text-[#fbf3e4] cursor-pointer'
-                    : 'bg-[#282019] text-[#7a6b57] cursor-not-allowed'
+                    ? 'bg-[#2f854e] hover:bg-[#3a9c5e] text-[#F2E8D5] cursor-pointer'
+                    : 'bg-[#292017] text-[#B8AA96]/50 cursor-not-allowed'
                 }`}
               >
                 Confirm Here
@@ -449,7 +535,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               <button
                 type="button"
                 onClick={() => onStartBuildingPlacement(null)}
-                className="px-2.5 py-1 rounded bg-[#361d18] hover:bg-[#492720] border border-[#b45a4b]/45 text-[#f6cbc2] font-medium cursor-pointer"
+                className="px-2.5 py-1.5 rounded bg-[#361d18] hover:bg-[#492720] border border-[#b45a4b]/55 text-[#f6cbc2] font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
                 Cancel
               </button>
@@ -466,14 +552,14 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             {notifications.slice(-3).map((n) => (
               <div
                 key={n.id}
-                className={`rounded bg-[#16100b]/96 border px-3 py-1.5 shadow-lg flex items-center justify-between gap-2 text-xs ${
+                className={`rounded bg-[#171512]/96 border px-3 py-1.5 shadow-lg flex items-center justify-between gap-2 text-xs ${
                   n.kind === 'alert'
-                    ? 'border-[#e06353]/65 text-[#fbd5cf]'
+                    ? 'border-[#e06353]/70 text-[#fbd5cf]'
                     : n.kind === 'warning'
-                      ? 'border-[#e0a23b]/65 text-[#fae5be]'
+                      ? 'border-[#D4A64A]/70 text-[#F2E8D5]'
                       : n.kind === 'success'
-                        ? 'border-[#4ca86b]/65 text-[#d7f7e1]'
-                        : 'border-[#9c7940]/55 text-[#efe2cb]'
+                        ? 'border-[#4ca86b]/70 text-[#d7f7e1]'
+                        : 'border-[#76513A] text-[#F2E8D5]'
                 }`}
               >
                 <span className="leading-snug">{n.message}</span>
@@ -481,9 +567,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   type="button"
                   aria-label="Dismiss notification"
                   onClick={() => onDismissNotification(n.id)}
-                  className="text-[#b8a586] hover:text-[#fbf3e4] px-1 cursor-pointer shrink-0"
+                  className="text-[#B8AA96] hover:text-[#F2E8D5] p-0.5 cursor-pointer shrink-0"
                 >
-                  ✕
+                  <X className="w-3.5 h-3.5" aria-hidden="true" />
                 </button>
               </div>
             ))}
@@ -496,6 +582,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         {/* Contextual Entity / Multi-Villager / Military Selection Inspector */}
         {!activeTab && (
           <SelectionInspector
+            playerKingdomId={gameData.kingdomId}
             selectedEntities={selectedEntities}
             allEntities={allEntities}
             touchCommandMode={touchCommandMode}
@@ -510,41 +597,47 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             onCancelRecruitment={onCancelRecruitment}
             onSetFormation={onSetFormation}
             onSetStance={onSetStance}
-            onMilitaryAttack={onMilitaryAttack}
           />
         )}
 
-        {/* Active Navigation Drawer (Economy / Construction / Military / Research / Diplomacy / Trade) */}
+        {/* Active Navigation Drawer */}
         {!dockCollapsed && activeTab && (
           <section
             aria-label={`${activeTab} management panel`}
-            className="pointer-events-auto w-full max-w-4xl rounded-md bg-[#17110c]/96 border border-[#c98f32]/45 p-3.5 sm:p-4 shadow-2xl space-y-3"
+            className="pointer-events-auto w-full max-w-4xl max-h-[48vh] sm:max-h-none overflow-y-auto sm:overflow-visible akanu-scroll rounded-md bg-[#171512]/96 border border-[#A77A32]/65 p-3.5 sm:p-4 shadow-2xl space-y-3"
           >
-            <div className="flex items-center justify-between border-b border-[#8f6c38]/25 pb-2">
-              <div>
-                <h3 className="font-display text-base font-bold text-[#fbf3e4] capitalize">
+            <div className="flex items-center justify-between gap-3 border-b border-[#76513A]/50 pb-2">
+              <div className="min-w-0">
+                <h3 className="font-display text-base font-bold text-[#F2E8D5] capitalize truncate">
                   {activeTab === 'kingdom'
                     ? 'Kingdom Economy & Workforce'
                     : activeTab === 'military'
                       ? 'Kingdom Military High Command'
-                      : `${activeTab} Council`}
+                      : activeTab === 'research'
+                        ? 'Royal Doctrine & Realm Milestones'
+                        : `${activeTab} Council`}
                 </h3>
-                <p className="text-xs text-[#b8a586]">
+                <p className="text-xs text-[#B8AA96] truncate">
                   {activeTab === 'kingdom'
                     ? `${gameData.playerKingdomName} · ${gameData.rulerName} · ${region.name}`
                     : activeTab === 'construction'
                       ? 'Select a structure to preview footprint and place on buildable terrain'
                       : activeTab === 'military'
                         ? `${kingdom.name} Standing Army & Martial Doctrine · Real-Time RTS Formations`
-                        : 'Kingdom Strategic Overview'}
+                        : activeTab === 'research'
+                          ? `${kingdom.name} Sovereign Doctrines, Biome Adaptation & Realm Progression`
+                          : activeTab === 'diplomacy'
+                            ? `${kingdom.name} Bilateral Relations, Treaties & Envoys`
+                            : 'Kingdom Marketplaces, Traders & Tariff Revenue'}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setActiveTab(null)}
-                className="px-2.5 py-1 rounded bg-[#261c14] hover:bg-[#34271c] border border-[#8f6c38]/35 text-xs text-[#e5d8c0] cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0"
               >
-                Close Panel
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Close</span>
               </button>
             </div>
 
@@ -579,13 +672,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               <div className="space-y-3 text-xs">
                 {/* Kingdom Doctrine Trait Banner */}
                 {KINGDOM_MILITARY_BONUSES[gameData.kingdomId] && (
-                  <div className="rounded bg-[#20150d] border border-[#d4993a]/40 p-2.5 flex items-start gap-3">
-                    <span className="text-lg">🛡️</span>
+                  <div className="rounded bg-[#292017] border border-[#A77A32]/60 p-2.5 flex items-start gap-3">
+                    <Shield className="w-5 h-5 text-[#D4A64A] shrink-0 mt-0.5" aria-hidden="true" />
                     <div>
-                      <div className="font-semibold text-[#f8e5b6]">
+                      <div className="font-semibold text-[#F2E8D5]">
                         {kingdom.name} Doctrine: {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].name}
                       </div>
-                      <div className="text-[#c8b79b] text-[11px] leading-relaxed mt-0.5">
+                      <div className="text-[#B8AA96] text-[11px] leading-relaxed mt-0.5">
                         {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].summary}
                       </div>
                     </div>
@@ -595,11 +688,15 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 {/* Military Roster & Quick Selection */}
                 {(() => {
                   const militaryUnits = allEntities.filter(
-                    (e): e is CharacterEntity => e.category === 'character' && Boolean(e.militaryClass),
+                    (e): e is CharacterEntity =>
+                      e.category === 'character' &&
+                      e.kingdomId === gameData.kingdomId &&
+                      Boolean(e.militaryClass),
                   );
                   const militaryBuildings = allEntities.filter(
                     (e): e is BuildingEntity =>
                       e.category === 'building' &&
+                      e.kingdomId === gameData.kingdomId &&
                       [
                         'barracks_compound',
                         'archery_grounds',
@@ -624,30 +721,30 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
                   return (
                     <div className="space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2 bg-[#1b130c] border border-[#6f5331]/40 rounded p-2.5">
-                        <div className="flex items-center gap-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 bg-[#292017]/80 border border-[#76513A]/60 rounded p-2.5">
+                        <div className="flex flex-wrap items-center gap-4">
                           <div>
-                            <span className="text-[#a89578] uppercase text-[10px] tracking-wider block">
+                            <span className="text-[#B8AA96] uppercase text-[10px] tracking-wider block">
                               Standing Soldiers
                             </span>
-                            <span className="font-bold text-base text-[#fbf3e4]">
+                            <span className="font-mono-num font-bold text-base text-[#F2E8D5]">
                               {militaryUnits.length}
                             </span>
                           </div>
-                          <div className="border-l border-[#6f5331]/40 pl-3">
-                            <span className="text-[#a89578] uppercase text-[10px] tracking-wider block">
+                          <div className="border-l border-[#76513A]/60 pl-3">
+                            <span className="text-[#B8AA96] uppercase text-[10px] tracking-wider block">
                               Queued Recruits
                             </span>
-                            <span className="font-bold text-sm text-[#f0c265]">
+                            <span className="font-mono-num font-bold text-sm text-[#D4A64A]">
                               {totalQueued}
                             </span>
                           </div>
-                          <div className="border-l border-[#6f5331]/40 pl-3">
-                            <span className="text-[#a89578] uppercase text-[10px] tracking-wider block">
+                          <div className="border-l border-[#76513A]/60 pl-3">
+                            <span className="text-[#B8AA96] uppercase text-[10px] tracking-wider block">
                               Hourly Upkeep
                             </span>
-                            <span className="font-bold text-sm text-[#e08677]">
-                              -{hourlyFoodUpkeep} Food / -{hourlyGoldUpkeep} Gold
+                            <span className="font-mono-num font-bold text-sm text-[#fca5a5]">
+                              -{Math.round(hourlyFoodUpkeep)} Food / -{Math.round(hourlyGoldUpkeep)} Gold
                             </span>
                           </div>
                         </div>
@@ -659,9 +756,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                               setActiveTab(null);
                               onSelectMilitaryUnits?.('all');
                             }}
-                            className="px-3 py-1.5 rounded bg-[#b97a2c] hover:bg-[#cf8b34] text-[#140e07] font-semibold text-xs cursor-pointer shadow-sm transition-colors"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-[#171512] font-semibold text-xs cursor-pointer shadow-sm transition-colors duration-150 whitespace-nowrap"
                           >
-                            ⚔ Select Entire Army
+                            <Swords className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>Select Entire Army</span>
                           </button>
                         </div>
                       </div>
@@ -692,27 +790,27 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                                 setActiveTab(null);
                                 onSelectMilitaryUnits?.(uClass);
                               }}
-                              className={`p-2 rounded text-left border transition-all cursor-pointer ${
+                              className={`p-2 rounded text-left border transition-colors duration-150 cursor-pointer ${
                                 count > 0
-                                  ? 'bg-[#211710] border-[#c98f32]/45 hover:border-[#f0c265]'
-                                  : 'bg-[#1a120b] border-[#4f3c24]/30 opacity-70'
+                                  ? 'bg-[#292017] border-[#A77A32] hover:border-[#D4A64A]'
+                                  : 'bg-[#171512] border-[#76513A]/40 opacity-75'
                               }`}
                             >
-                              <div className="flex items-center justify-between">
-                                <span className="font-semibold text-[#f8e5b6] truncate">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="font-semibold text-[#F2E8D5] truncate">
                                   {bp.name}
                                 </span>
                                 <span
-                                  className={`px-1.5 py-0.2 rounded text-[11px] font-bold ${
+                                  className={`px-1.5 py-0.5 rounded font-mono-num text-[11px] font-bold shrink-0 ${
                                     count > 0
-                                      ? 'bg-[#c98f32] text-[#140d07]'
-                                      : 'bg-[#291e14] text-[#8c775c]'
+                                      ? 'bg-[#D4A64A] text-[#171512]'
+                                      : 'bg-[#292017] text-[#B8AA96]'
                                   }`}
                                 >
                                   {count}
                                 </span>
                               </div>
-                              <div className="text-[10px] text-[#b09e82] mt-0.5 line-clamp-1">
+                              <div className="text-[10px] text-[#B8AA96] mt-0.5 line-clamp-1 font-mono-num">
                                 {bp.tacticalRole} · Atk {bp.attackDamage} · HP {bp.health}
                               </div>
                             </button>
@@ -722,16 +820,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
                       {/* Military Facilities List */}
                       <div className="pt-2">
-                        <div className="text-[11px] font-semibold text-[#d4c19c] uppercase tracking-wider mb-1.5">
+                        <div className="text-[11px] font-semibold text-[#D4A64A] uppercase tracking-wider mb-1.5">
                           Military Facilities & Production Lines
                         </div>
                         {militaryBuildings.length === 0 ? (
-                          <div className="p-3 rounded bg-[#18120b] border border-[#523d24]/35 text-[#a89578] text-center">
+                          <div className="p-3 rounded bg-[#292017]/55 border border-[#76513A]/50 text-[#B8AA96] text-center">
                             No dedicated military buildings constructed yet. Open{' '}
                             <button
                               type="button"
                               onClick={() => setActiveTab('construction')}
-                              className="text-[#f0c265] underline font-medium cursor-pointer"
+                              className="text-[#D4A64A] underline font-medium cursor-pointer"
                             >
                               Construction
                             </button>{' '}
@@ -742,13 +840,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                             {militaryBuildings.map((b) => (
                               <div
                                 key={b.id}
-                                className="p-2.5 rounded bg-[#1c140d] border border-[#6b5030]/40 flex items-center justify-between"
+                                className="p-2.5 rounded bg-[#292017]/80 border border-[#76513A]/60 flex items-center justify-between gap-2"
                               >
-                                <div>
-                                  <div className="font-semibold text-[#fbf3e4] text-xs">
+                                <div className="min-w-0">
+                                  <div className="font-semibold text-[#F2E8D5] text-xs truncate">
                                     {b.name}
                                   </div>
-                                  <div className="text-[10px] text-[#ab987a]">
+                                  <div className="text-[10px] text-[#B8AA96] font-mono-num">
                                     Status: {b.constructionState === 'completed' ? 'Active' : 'Under Construction'} · Queued: {b.recruitmentQueue?.length || 0}/5
                                   </div>
                                 </div>
@@ -759,7 +857,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                                     onSelectEntityById(b.id, false);
                                     onFocusEntity(b.id);
                                   }}
-                                  className="px-2.5 py-1 rounded bg-[#2e2116] hover:bg-[#3d2c1e] border border-[#8f6c38]/40 text-[11px] text-[#f0dca8] cursor-pointer"
+                                  className="px-2.5 py-1 rounded bg-[#171512] hover:bg-[#362a1e] border border-[#76513A] text-[11px] text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
                                 >
                                   Manage
                                 </button>
@@ -775,76 +873,177 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             )}
 
             {activeTab === 'research' && (
-              <div className="text-xs text-[#d9ccb4] leading-relaxed">
-                Academy technologies across Agriculture, Masonry Construction, Metallurgy, Siege
-                Engineering, and Commerce unlock in{' '}
-                <span className="font-semibold text-[#f0c265]">
-                  Phase 5: Progression and Diplomacy
-                </span>
-                . Active {kingdom.name} Phase 2 trait:{' '}
-                <span className="font-semibold text-[#fbf3e4]">
-                  {KINGDOM_ECONOMIC_BONUSES[gameData.kingdomId].summary}
-                </span>
-                .
+              <div className="space-y-3 text-xs">
+                {/* 1. Sovereign Economic & Martial Doctrines */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="rounded bg-[#292017]/80 border border-[#76513A]/60 p-3 space-y-1">
+                    <div className="inline-flex items-center gap-1.5 font-semibold text-[#D4A64A]">
+                      <Crown className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>{kingdom.name} Economic Doctrine</span>
+                    </div>
+                    <p className="text-[#F2E8D5] leading-relaxed">
+                      {KINGDOM_ECONOMIC_BONUSES[gameData.kingdomId].summary}
+                    </p>
+                  </div>
+
+                  <div className="rounded bg-[#292017]/80 border border-[#76513A]/60 p-3 space-y-1">
+                    <div className="inline-flex items-center gap-1.5 font-semibold text-[#D4A64A]">
+                      <Shield className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>
+                        Martial Tradition: {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].name}
+                      </span>
+                    </div>
+                    <p className="text-[#F2E8D5] leading-relaxed">
+                      {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].summary}
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. Biome Adaptation & Terrain Traits */}
+                <div className="rounded bg-[#292017]/65 border border-[#76513A]/55 p-3 space-y-1.5">
+                  <div className="inline-flex items-center gap-1.5 font-semibold text-[#D4A64A]">
+                    <Compass className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>{region.name} Environmental Adaptation</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-[#B8AA96]">
+                    {region.strategicTraits.map((trait) => (
+                      <div
+                        key={trait}
+                        className="rounded bg-[#171512] border border-[#76513A]/45 px-2.5 py-1.5 text-[#F2E8D5]"
+                      >
+                        {trait}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. Live Realm Progression Track */}
+                <div className="rounded bg-[#292017]/65 border border-[#76513A]/55 p-3 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold text-[#D4A64A]">
+                      Realm Ascension Track (Current: {gameData.progressionStage})
+                    </span>
+                    <span className="font-mono-num text-[11px] text-[#B8AA96]">
+                      {gameData.population.current} Citizens · {completedBuildings.length} Completed Buildings ·{' '}
+                      {hasCompletedPalace ? 'Royal Palace Built' : 'Royal Palace Pending'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5">
+                    {REALM_STAGES.map((item, idx) => {
+                      const reached = idx <= currentStageIndex;
+                      const current = idx === currentStageIndex;
+                      return (
+                        <div
+                          key={item.stage}
+                          className={`rounded border p-2 space-y-0.5 ${
+                            current
+                              ? 'bg-[#292017] border-[#D4A64A] text-[#F2E8D5]'
+                              : reached
+                                ? 'bg-[#171512] border-[#4ca86b]/55 text-[#d7f7e1]'
+                                : 'bg-[#110f0d] border-[#76513A]/40 text-[#B8AA96]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1 font-semibold text-[11px]">
+                            {reached ? (
+                              <CheckCircle2
+                                className={`w-3.5 h-3.5 shrink-0 ${
+                                  current ? 'text-[#D4A64A]' : 'text-[#86efac]'
+                                }`}
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              <Circle className="w-3.5 h-3.5 shrink-0 text-[#76513A]" aria-hidden="true" />
+                            )}
+                            <span className="truncate">{item.stage}</span>
+                          </div>
+                          <div className="text-[10px] leading-snug opacity-85">
+                            {item.requirement}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             )}
 
             {activeTab === 'diplomacy' && (
               <DiplomacyPanel
                 playerKingdomId={gameData.kingdomId}
-                relations={diplomacyRelations || {
-                  oru: { targetKingdomId: 'oru', state: 'neutral', score: 0, discovered: true, activeTreaties: [], lastInteractionTimeSec: 0, grievanceCount: 0 },
-                  zambara: { targetKingdomId: 'zambara', state: 'neutral', score: 0, discovered: true, activeTreaties: [], lastInteractionTimeSec: 0, grievanceCount: 0 },
-                  kemetra: { targetKingdomId: 'kemetra', state: 'neutral', score: 0, discovered: true, activeTreaties: [], lastInteractionTimeSec: 0, grievanceCount: 0 },
-                  aseka: { targetKingdomId: 'aseka', state: 'neutral', score: 0, discovered: true, activeTreaties: [], lastInteractionTimeSec: 0, grievanceCount: 0 },
-                  nambara: { targetKingdomId: 'nambara', state: 'neutral', score: 0, discovered: true, activeTreaties: [], lastInteractionTimeSec: 0, grievanceCount: 0 },
-                }}
+                relations={diplomacyRelations || ({} as Record<KingdomId, DiplomaticRelation>)}
                 events={worldEventsData || []}
-                onProposeTreaty={onProposeTreaty || ((targetId, kind) => ({ accepted: true, reason: 'Pact established.' }))}
+                onProposeTreaty={onProposeTreaty || (() => ({ accepted: false, reason: 'Diplomacy unavailable.' }))}
+                onSendEnvoy={onSendEnvoy}
+                onProposePeace={onProposePeace}
                 onDeclareWar={onDeclareWar || (() => {})}
                 onClose={() => setActiveTab(null)}
               />
             )}
 
-            {activeTab === 'trade' && (
-              <div className="space-y-2 text-xs text-[#d9ccb4] leading-relaxed">
-                <p>
-                  Active Marketplaces:{' '}
-                  <strong className="font-mono-num text-[#fbf3e4]">{completedMarkets}</strong> ·
-                  Assigned Traders:{' '}
-                  <strong className="font-mono-num text-[#fbf3e4]">{activeTraders}</strong> · Gold
-                  Production:{' '}
-                  <strong className="font-mono-num text-[#86efac]">
-                    +{Math.round(gameData.rates.productionPerMinute.gold)}/min
-                  </strong>
-                  .
-                </p>
-                <p>
-                  Assign villagers as <strong className="text-[#f0c265]">Traders</strong> or build
-                  additional <strong className="text-[#f0c265]">Marketplaces</strong> to expand
-                  domestic tariff gold generation. Inter-kingdom caravan diplomacy arrives in{' '}
-                  <span className="font-semibold text-[#f0c265]">Phase 5</span>.
-                </p>
-              </div>
-            )}
+            {activeTab === 'trade' && (() => {
+              const activeTradePacts = Object.values(diplomacyRelations || {}).filter((rel) =>
+                rel.activeTreaties.some((t) => t.kind === 'trade_pact' && t.durationRemainingSec > 0),
+              ).length;
+              return (
+                <div className="space-y-2.5 text-xs text-[#F2E8D5] leading-relaxed">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
+                      <div className="text-[10px] text-[#B8AA96]">Active Marketplaces</div>
+                      <div className="font-mono-num text-base font-bold text-[#F2E8D5]">
+                        {completedMarkets}
+                      </div>
+                    </div>
+                    <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
+                      <div className="text-[10px] text-[#B8AA96]">Assigned Traders</div>
+                      <div className="font-mono-num text-base font-bold text-[#F2E8D5]">
+                        {activeTraders}
+                      </div>
+                    </div>
+                    <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
+                      <div className="text-[10px] text-[#B8AA96]">Trade Pacts</div>
+                      <div className="font-mono-num text-base font-bold text-[#D4A64A]">
+                        {activeTradePacts} (+{activeTradePacts * 15}%)
+                      </div>
+                    </div>
+                    <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
+                      <div className="text-[10px] text-[#B8AA96]">Gold Rate</div>
+                      <div className="font-mono-num text-base font-bold text-[#86efac]">
+                        +{Math.round(gameData.rates.productionPerMinute.gold)}/min
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-[#B8AA96]">
+                    Assign villagers as <strong className="text-[#D4A64A]">Traders</strong>, construct{' '}
+                    <strong className="text-[#D4A64A]">Marketplaces</strong>, and negotiate{' '}
+                    <strong className="text-[#D4A64A]">Trade Pacts</strong> in Diplomacy to amplify
+                    kingdom tariff revenues.
+                  </p>
+                </div>
+              );
+            })()}
           </section>
         )}
 
         {/* Unified Bottom Dock with Collapse/Expand Toggle */}
-        <div className="pointer-events-auto flex flex-col items-center w-full max-w-4xl">
+        <div className="pointer-events-auto flex flex-col items-center w-full max-w-6xl">
           <button
             type="button"
             onClick={() => setDockCollapsed((c) => !c)}
-            className="px-3 py-0.5 rounded-t bg-[#17110c]/95 border border-b-0 border-[#8f6c38]/40 text-[11px] text-[#cbb899] hover:text-[#fbf3e4] cursor-pointer whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-t bg-[#171512]/96 border border-b-0 border-[#A77A32]/55 text-[11px] text-[#B8AA96] hover:text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
           >
-            {dockCollapsed ? '▴ Show Command Dock (H)' : '▾ Hide Command Dock (H)'}
+            {dockCollapsed ? (
+              <ChevronUp className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
+            )}
+            <span>{dockCollapsed ? 'Show Command Dock (H)' : 'Hide Command Dock (H)'}</span>
           </button>
 
           {!dockCollapsed && (
-            <div className="w-full rounded-md bg-[#16100b]/96 border border-[#b98736]/45 px-2 sm:px-4 py-2 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-2">
+            <div className="w-full rounded-md bg-[#171512]/96 border border-[#A77A32]/65 px-2 sm:px-3 py-2 shadow-xl flex flex-col xl:flex-row xl:items-center justify-between gap-2">
               <nav
                 aria-label="Kingdom Departments"
-                className="grid grid-cols-6 md:flex items-center gap-1 sm:gap-1.5 w-full md:w-auto"
+                className="grid grid-cols-6 xl:flex items-center gap-1 w-full xl:w-auto"
               >
                 {NAV_TABS.map((t) => {
                   const isActive = activeTab === t.id;
@@ -855,12 +1054,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                       aria-label={t.label}
                       aria-pressed={isActive}
                       onClick={() => toggleTab(t.id)}
-                      className={`px-1 sm:px-3.5 py-2 rounded text-[11px] sm:text-xs font-semibold text-center transition-colors cursor-pointer whitespace-nowrap ${
+                      className={`inline-flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 px-1 sm:px-2.5 py-1.5 rounded text-[10px] sm:text-xs font-semibold text-center transition-colors duration-150 cursor-pointer whitespace-nowrap min-h-[44px] sm:min-h-0 ${
                         isActive
-                          ? 'bg-[#c98f32] text-[#171008]'
-                          : 'bg-[#221911] hover:bg-[#2f2318] text-[#e5d8c0]'
+                          ? 'bg-[#D4A64A] text-[#171512]'
+                          : 'bg-[#292017] hover:bg-[#362a1e] border border-[#76513A]/50 text-[#F2E8D5]'
                       }`}
                     >
+                      {t.renderIcon()}
                       <span className="sm:hidden">{t.shortLabel}</span>
                       <span className="hidden sm:inline">{t.label}</span>
                     </button>
@@ -868,15 +1068,17 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 })}
               </nav>
 
-              <div className="flex items-center justify-between md:justify-end gap-1 w-full md:w-auto">
-                <div className="flex items-center gap-1">
+              <div className="flex flex-wrap sm:flex-nowrap items-center justify-between xl:justify-end gap-1.5 w-full xl:w-auto">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={handleCycleVillager}
                     title="Select & Focus Next Villager"
-                    className="px-2.5 py-2 rounded bg-[#241b13] hover:bg-[#34271b] border border-[#8f6c38]/35 text-xs font-medium text-[#f0dca8] cursor-pointer whitespace-nowrap"
+                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap min-h-[44px] sm:min-h-0"
                   >
-                    Next Villager
+                    <Users className="w-3.5 h-3.5 text-[#D4A64A] hidden sm:inline" aria-hidden="true" />
+                    <span>Next</span>
+                    <span className="hidden 2xl:inline">Villager</span>
                   </button>
                   <button
                     type="button"
@@ -885,7 +1087,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                       onSelectVillagersByRole('all');
                     }}
                     title="Select All Villagers"
-                    className="px-2 py-2 rounded bg-[#211811] hover:bg-[#302318] border border-[#8f6c38]/35 text-xs font-medium text-[#e5d8c0] cursor-pointer whitespace-nowrap"
+                    className="px-2 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] font-mono-num transition-colors duration-150 cursor-pointer whitespace-nowrap min-h-[44px] sm:min-h-0"
                   >
                     All ({villagers.length})
                   </button>
@@ -896,57 +1098,100 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                       onSelectMilitaryUnits?.('all');
                     }}
                     title="Select All Military Units"
-                    className="px-2.5 py-2 rounded bg-[#2c1d12] hover:bg-[#3d2717] border border-[#b98736]/50 text-xs font-semibold text-[#f8e5b6] cursor-pointer whitespace-nowrap"
+                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/70 text-xs font-semibold text-[#D4A64A] font-mono-num transition-colors duration-150 cursor-pointer whitespace-nowrap min-h-[44px] sm:min-h-0"
                   >
-                    ⚔ Army ({allEntities.filter((e) => e.category === 'character' && Boolean((e as CharacterEntity).militaryClass)).length})
+                    <Swords className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Army ({playerArmyCount})</span>
                   </button>
                 </div>
 
-                <div className="flex items-center gap-1">
+                {/* Camera Presets & Rig Controls */}
+                <div className="flex items-center gap-1 shrink-0">
+                  <div
+                    role="group"
+                    aria-label="Camera Presets"
+                    className="hidden sm:flex items-center rounded bg-[#110f0d] border border-[#76513A]/60 p-0.5 mr-1"
+                  >
+                    {(
+                      [
+                        { id: 'settlement', label: 'Settlement' },
+                        { id: 'overview', label: 'Overview' },
+                        { id: 'battle', label: 'Army' },
+                      ] as const
+                    ).map((preset) => {
+                      const active = activeCamPreset === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => handlePresetClick(preset.id)}
+                          className={`px-2 py-1 rounded text-[11px] font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                            active
+                              ? 'bg-[#D4A64A] text-[#171512]'
+                              : 'text-[#B8AA96] hover:text-[#F2E8D5]'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   <button
                     type="button"
                     onClick={() => onCameraRotate(-0.38)}
                     aria-label="Rotate Camera Left"
                     title="Rotate Camera Left (Q)"
-                    className="w-9 h-9 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#211811] hover:bg-[#302318] border border-[#8f6c38]/35 text-xs font-semibold text-[#e5d8c0] cursor-pointer"
+                    className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
                   >
-                    ↺
+                    <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
                   <button
                     type="button"
                     onClick={() => onCameraRotate(0.38)}
                     aria-label="Rotate Camera Right"
                     title="Rotate Camera Right (E)"
-                    className="w-9 h-9 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#211811] hover:bg-[#302318] border border-[#8f6c38]/35 text-xs font-semibold text-[#e5d8c0] cursor-pointer"
+                    className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
                   >
-                    ↻
+                    <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
                   <button
                     type="button"
                     onClick={() => onCameraZoom(-7)}
                     aria-label="Zoom In"
                     title="Zoom In (+)"
-                    className="w-9 h-9 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#211811] hover:bg-[#302318] border border-[#8f6c38]/35 text-sm font-bold text-[#e5d8c0] cursor-pointer"
+                    className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
                   >
-                    +
+                    <ZoomIn className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
                   <button
                     type="button"
                     onClick={() => onCameraZoom(7)}
                     aria-label="Zoom Out"
                     title="Zoom Out (-)"
-                    className="w-9 h-9 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#211811] hover:bg-[#302318] border border-[#8f6c38]/35 text-sm font-bold text-[#e5d8c0] cursor-pointer"
+                    className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
                   >
-                    −
+                    <ZoomOut className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
                   <button
                     type="button"
                     onClick={onFocusSettlement}
                     aria-label="Focus Settlement Center"
-                    title="Focus Settlement Center"
-                    className="px-2.5 h-9 sm:h-8 inline-flex items-center justify-center rounded bg-[#211811] hover:bg-[#302318] border border-[#8f6c38]/35 text-xs font-medium text-[#e5d8c0] cursor-pointer whitespace-nowrap"
+                    title="Focus Settlement Center (Home)"
+                    className="px-2.5 h-11 sm:h-8 inline-flex items-center gap-1 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
                   >
-                    Center
+                    <Home className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
+                    <span className="hidden sm:inline">Center</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePresetClick(activeCamPreset === 'overview' ? 'settlement' : 'overview')}
+                    aria-label="Toggle Overview Camera"
+                    title="Toggle Strategic Overview Camera"
+                    className="sm:hidden w-11 h-11 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/65 text-[#D4A64A] transition-colors duration-150 cursor-pointer"
+                  >
+                    <Eye className="w-4 h-4" aria-hidden="true" />
                   </button>
                 </div>
               </div>
@@ -958,8 +1203,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       {showOverview && (
         <KingdomOverviewPanel
           playerKingdomId={gameData.kingdomId}
-          aiKingdoms={aiKingdomsData || {} as any}
-          relations={diplomacyRelations || {} as any}
+          difficultyLevel={gameData.difficultyLevel}
+          aiKingdoms={aiKingdomsData || ({} as Record<KingdomId, AIKingdomRuntime>)}
+          relations={diplomacyRelations || ({} as Record<KingdomId, DiplomaticRelation>)}
           events={worldEventsData || []}
           onClose={() => setShowOverview(false)}
         />

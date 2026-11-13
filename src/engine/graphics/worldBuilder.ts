@@ -47,6 +47,7 @@ export interface BuiltWorldScene {
   buildings: BuildingEntity[];
   characters: CharacterEntity[];
   resourceNodes: EnvironmentNodeEntity[];
+  capitalCenters: Record<KingdomId, { x: number; z: number }>;
   entitiesById: Map<string, SelectableEntity>;
   characterRigs: CharacterVisualRig[];
   raycastTargets: THREE.Object3D[];
@@ -61,6 +62,8 @@ export interface BuiltWorldScene {
   syncResourceNodeVisual: (nodeId: string) => void;
   addCharacterEntity: (char: CharacterEntity) => void;
   updateWater: (elapsedSeconds: number) => void;
+  updateEnvironment: (elapsedSeconds: number, dt: number) => void;
+  spawnVfxBurst: (x: number, y: number, z: number, kind: 'dust' | 'spark' | 'smoke') => void;
   dispose: () => void;
 }
 
@@ -203,13 +206,92 @@ export function buildProceduralWorld(
   waterMesh.receiveShadow = true;
   root.add(waterMesh);
 
-  // 3. Build Kingdom Settlement Buildings & Dynamic Building Mutators
-  const buildingMats = track(createBuildingMaterialLibrary(kingdom, textures));
+  // 2B. Atmospheric GLSL Gradient Sky Dome with Sun Halo
+  const skyGeo = track(new THREE.SphereGeometry(188, 24, 16));
+  const skyMat = track(
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        uTopColor: { value: new THREE.Color(region.palette.skyTop) },
+        uHorizonColor: { value: new THREE.Color(region.palette.skyHorizon) },
+        uSunColor: { value: new THREE.Color(region.palette.sunColor) },
+        uSunDir: { value: new THREE.Vector3(0.55, 0.72, 0.35).normalize() },
+      },
+      vertexShader: `
+        varying vec3 vWorldDir;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorldDir = normalize(position);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uTopColor;
+        uniform vec3 uHorizonColor;
+        uniform vec3 uSunColor;
+        uniform vec3 uSunDir;
+        varying vec3 vWorldDir;
+        void main() {
+          float h = clamp(vWorldDir.y, 0.0, 1.0);
+          vec3 col = mix(uHorizonColor, uTopColor, pow(h, 0.52));
+          float sunDot = max(dot(normalize(vWorldDir), uSunDir), 0.0);
+          float halo = pow(sunDot, 14.0) * 0.36 + pow(sunDot, 96.0) * 0.65;
+          col += uSunColor * halo;
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+    }),
+  );
+  const skyDome = new THREE.Mesh(skyGeo, skyMat);
+  skyDome.renderOrder = -2;
+  root.add(skyDome);
+
+  // 2C. Drifting Layered Cloud Sprites (skipped on low quality)
+  const cloudSprites: { sprite: THREE.Sprite; speed: number; baseZ: number }[] = [];
+  if (quality !== 'low') {
+    const cloudMat = track(
+      new THREE.SpriteMaterial({
+        map: textures.cloudPuffMap,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+        fog: true,
+      }),
+    );
+    const cloudCount = quality === 'ultra' ? 14 : 9;
+    for (let c = 0; c < cloudCount; c++) {
+      const sp = new THREE.Sprite(cloudMat);
+      const cx = (rand() - 0.5) * 210;
+      const cy = 38 + rand() * 16;
+      const cz = (rand() - 0.5) * 210;
+      sp.position.set(cx, cy, cz);
+      const w = 24 + rand() * 18;
+      sp.scale.set(w, w * 0.46, 1);
+      root.add(sp);
+      cloudSprites.push({ sprite: sp, speed: 0.8 + rand() * 0.9, baseZ: cz });
+    }
+  }
+
+  // 3. Build Kingdom Settlement Buildings & Dynamic Building Mutators (per-kingdom authentic palettes)
+  const buildingMatsByKingdom: Partial<
+    Record<KingdomId, ReturnType<typeof createBuildingMaterialLibrary>>
+  > = {};
+  const getBuildingMats = (kId: KingdomId) => {
+    if (!buildingMatsByKingdom[kId]) {
+      buildingMatsByKingdom[kId] = track(
+        createBuildingMaterialLibrary(KINGDOMS[kId] ?? kingdom, textures),
+      );
+    }
+    return buildingMatsByKingdom[kId]!;
+  };
   const colliderMat = track(new THREE.MeshBasicMaterial({ visible: false }));
 
   const mountBuildingVisual = (bld: BuildingEntity) => {
+    if (buildingVisualsById.has(bld.id)) return;
     entitiesById.set(bld.id, bld);
-    const bldGroup = buildProceduralStructure(bld, buildingMats);
+    const bldGroup = buildProceduralStructure(bld, getBuildingMats(bld.kingdomId));
     root.add(bldGroup);
 
     const colliderHeight =
@@ -504,7 +586,7 @@ export function buildProceduralWorld(
       for (let b = 0; b < 3; b++) {
         const trap = new THREE.Mesh(
           track(new THREE.ConeGeometry(0.42, 0.95, 8)),
-          buildingMats.thatch,
+          getBuildingMats(kingdomId).thatch,
         );
         trap.rotation.z = Math.PI / 2.2;
         trap.position.set(-0.9 + b * 0.95, 0.28, 0.45 * (b % 2));
@@ -845,6 +927,211 @@ export function buildProceduralWorld(
     root.add(grassInst);
   }
 
+  // 5B. Instanced Flowering Shrubs & Shoreline Reeds for lush biome depth
+  const shrubCount = quality === 'low' ? 35 : quality === 'medium' ? 75 : 115;
+  const shrubGeo = track(new THREE.DodecahedronGeometry(0.42, 1));
+  shrubGeo.translate(0, 0.28, 0);
+  const shrubMat = track(
+    new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#ffffff'),
+      map: textures.foliageMap,
+      roughness: 0.84,
+      metalness: 0.01,
+    }),
+  );
+  const shrubPlacements: { x: number; y: number; z: number; s: number; t: number }[] = [];
+  attempts = 0;
+  while (shrubPlacements.length < shrubCount && attempts < shrubCount * 6) {
+    attempts++;
+    const x = (rand() - 0.5) * 160;
+    const z = (rand() - 0.5) * 160;
+    const y = sampleTerrainHeight(x, z, region, seed);
+    if (y < WATER_LEVEL + 0.15 || sampleTerrainSlope(x, z, region, seed) > 0.48) continue;
+    if (isOccupiedBySettlement(x, z, 1.4)) continue;
+    shrubPlacements.push({ x, y, z, s: 0.65 + rand() * 0.85, t: rand() });
+  }
+  if (shrubPlacements.length > 0) {
+    const shrubInst = new THREE.InstancedMesh(shrubGeo, shrubMat, shrubPlacements.length);
+    shrubInst.castShadow = quality === 'high' || quality === 'ultra';
+    shrubInst.receiveShadow = true;
+    const dummy = new THREE.Object3D();
+    const cPrim = new THREE.Color(region.palette.foliagePrimary);
+    const cSec = new THREE.Color(region.palette.foliageSecondary);
+    const sCol = new THREE.Color();
+    shrubPlacements.forEach((sp, idx) => {
+      dummy.position.set(sp.x, sp.y - 0.05, sp.z);
+      dummy.rotation.set(0, sp.t * Math.PI * 2, 0);
+      dummy.scale.set(sp.s * 1.15, sp.s * 0.85, sp.s);
+      dummy.updateMatrix();
+      shrubInst.setMatrixAt(idx, dummy.matrix);
+      sCol.copy(cPrim).lerp(cSec, sp.t);
+      shrubInst.setColorAt(idx, sCol);
+    });
+    shrubInst.instanceMatrix.needsUpdate = true;
+    if (shrubInst.instanceColor) shrubInst.instanceColor.needsUpdate = true;
+    shrubInst.computeBoundingSphere();
+    root.add(shrubInst);
+  }
+
+  // Riverbank reeds clustered near water edge
+  const reedCount = quality === 'low' ? 40 : 120;
+  const reedGeo = track(new THREE.CylinderGeometry(0.025, 0.055, 1.35, 5));
+  reedGeo.translate(0, 0.65, 0);
+  const reedMat = track(
+    new THREE.MeshStandardMaterial({
+      color: new THREE.Color(region.palette.foliageSecondary),
+      roughness: 0.85,
+    }),
+  );
+  const reedPlacements: { x: number; y: number; z: number; h: number; r: number }[] = [];
+  attempts = 0;
+  while (reedPlacements.length < reedCount && attempts < reedCount * 14) {
+    attempts++;
+    const x = (rand() - 0.5) * 165;
+    const z = (rand() - 0.5) * 165;
+    const y = sampleTerrainHeight(x, z, region, seed);
+    if (y < WATER_LEVEL - 0.12 || y > WATER_LEVEL + 0.55) continue;
+    if (isOccupiedBySettlement(x, z, 1.2)) continue;
+    reedPlacements.push({ x, y, z, h: 0.75 + rand() * 0.65, r: rand() * Math.PI * 2 });
+  }
+  if (reedPlacements.length > 0) {
+    const reedInst = new THREE.InstancedMesh(reedGeo, reedMat, reedPlacements.length);
+    const dummy = new THREE.Object3D();
+    reedPlacements.forEach((rp, idx) => {
+      dummy.position.set(rp.x, rp.y - 0.05, rp.z);
+      dummy.rotation.set((rand() - 0.5) * 0.22, rp.r, (rand() - 0.5) * 0.22);
+      dummy.scale.set(1, rp.h, 1);
+      dummy.updateMatrix();
+      reedInst.setMatrixAt(idx, dummy.matrix);
+    });
+    reedInst.instanceMatrix.needsUpdate = true;
+    reedInst.computeBoundingSphere();
+    root.add(reedInst);
+  }
+
+  // 5C. Soaring High-Altitude Savanna/Coastal Birds
+  const birdFlock: { group: THREE.Group; leftWing: THREE.Mesh; rightWing: THREE.Mesh; radius: number; speed: number; phase: number; center: [number, number, number] }[] = [];
+  if (quality !== 'low') {
+    const birdMat = track(new THREE.MeshBasicMaterial({ color: new THREE.Color('#231b15'), side: THREE.DoubleSide }));
+    const wingGeo = track(new THREE.PlaneGeometry(0.45, 0.14));
+    const birdCount = 6;
+    for (let b = 0; b < birdCount; b++) {
+      const bg = new THREE.Group();
+      const lw = new THREE.Mesh(wingGeo, birdMat);
+      lw.position.x = -0.22;
+      const rw = new THREE.Mesh(wingGeo, birdMat);
+      rw.position.x = 0.22;
+      bg.add(lw, rw);
+      root.add(bg);
+      birdFlock.push({
+        group: bg,
+        leftWing: lw,
+        rightWing: rw,
+        radius: 18 + (b % 3) * 11,
+        speed: 0.16 + (b % 2) * 0.05,
+        phase: b * 1.15,
+        center: [(b - 2.5) * 10, 21 + (b % 3) * 3.5, (b % 2 === 0 ? -1 : 1) * 14],
+      });
+    }
+  }
+
+  // 5D. Lightweight Pooled Smoke, Dust & Combat Spark VFX System
+  interface VfxParticle {
+    sprite: THREE.Sprite;
+    mat: THREE.SpriteMaterial;
+    active: boolean;
+    age: number;
+    life: number;
+    vx: number;
+    vy: number;
+    vz: number;
+    startScale: number;
+    endScale: number;
+    baseOpacity: number;
+  }
+  const vfxPoolSize = quality === 'low' ? 16 : 36;
+  const vfxPool: VfxParticle[] = [];
+  for (let p = 0; p < vfxPoolSize; p++) {
+    const mat = track(
+      new THREE.SpriteMaterial({
+        map: textures.smokePuffMap,
+        color: new THREE.Color('#e6dfd5'),
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      }),
+    );
+    const sprite = new THREE.Sprite(mat);
+    sprite.visible = false;
+    root.add(sprite);
+    vfxPool.push({
+      sprite,
+      mat,
+      active: false,
+      age: 0,
+      life: 1.5,
+      vx: 0,
+      vy: 1,
+      vz: 0,
+      startScale: 0.5,
+      endScale: 1.8,
+      baseOpacity: 0.5,
+    });
+  }
+  let vfxCursor = 0;
+  let smokeEmitTimer = 0;
+
+  const spawnVfxBurst = (
+    x: number,
+    y: number,
+    z: number,
+    kind: 'dust' | 'spark' | 'smoke',
+  ) => {
+    const count = kind === 'smoke' ? 1 : kind === 'spark' ? 2 : 3;
+    for (let i = 0; i < count; i++) {
+      const slot = vfxPool[vfxCursor % vfxPool.length];
+      vfxCursor++;
+      slot.active = true;
+      slot.age = 0;
+      slot.sprite.visible = true;
+      slot.sprite.position.set(
+        x + (Math.random() - 0.5) * 0.45,
+        y + (Math.random() - 0.5) * 0.25,
+        z + (Math.random() - 0.5) * 0.45,
+      );
+      if (kind === 'smoke') {
+        slot.life = 2.4 + Math.random() * 0.9;
+        slot.vx = 0.25 + (Math.random() - 0.5) * 0.18;
+        slot.vy = 1.05 + Math.random() * 0.4;
+        slot.vz = (Math.random() - 0.5) * 0.18;
+        slot.startScale = 0.55;
+        slot.endScale = 2.15;
+        slot.baseOpacity = 0.36;
+        slot.mat.color.set('#d8d0c5');
+      } else if (kind === 'spark') {
+        slot.life = 0.55 + Math.random() * 0.25;
+        slot.vx = (Math.random() - 0.5) * 2.4;
+        slot.vy = 1.2 + Math.random() * 1.4;
+        slot.vz = (Math.random() - 0.5) * 2.4;
+        slot.startScale = 0.45;
+        slot.endScale = 0.95;
+        slot.baseOpacity = 0.78;
+        slot.mat.color.set('#fbbf24');
+      } else {
+        slot.life = 1.15 + Math.random() * 0.45;
+        slot.vx = (Math.random() - 0.5) * 1.1;
+        slot.vy = 0.65 + Math.random() * 0.5;
+        slot.vz = (Math.random() - 0.5) * 1.1;
+        slot.startScale = 0.65;
+        slot.endScale = 1.85;
+        slot.baseOpacity = 0.42;
+        slot.mat.color.set('#cbb799');
+      }
+      slot.mat.opacity = slot.baseOpacity;
+      slot.sprite.scale.setScalar(slot.startScale);
+    }
+  };
+
   // 6. Articulated Economic Villager Characters & Dynamic Spawn Mutator
   const characterRigs: CharacterVisualRig[] = [];
   const mountCharacterVisual = (charEntity: CharacterEntity) => {
@@ -906,6 +1193,7 @@ export function buildProceduralWorld(
     buildings,
     characters,
     resourceNodes,
+    capitalCenters: baseSettlement.capitalCenters,
     entitiesById,
     characterRigs,
     raycastTargets,
@@ -968,6 +1256,76 @@ export function buildProceduralWorld(
       textures.waterBump.offset.y = elapsedSeconds * 0.019;
       waterMesh.position.y = WATER_LEVEL + Math.sin(elapsedSeconds * 1.4) * 0.02;
     },
+    updateEnvironment: (elapsedSeconds: number, dt: number) => {
+      // Drift atmospheric clouds gently across the sky
+      for (const cl of cloudSprites) {
+        cl.sprite.position.x += cl.speed * dt;
+        if (cl.sprite.position.x > 115) {
+          cl.sprite.position.x = -115;
+        }
+        cl.sprite.position.z = cl.baseZ + Math.sin(elapsedSeconds * 0.08 + cl.baseZ) * 2.5;
+      }
+
+      // Update soaring birds
+      for (const b of birdFlock) {
+        const ang = elapsedSeconds * b.speed + b.phase;
+        b.group.position.set(
+          b.center[0] + Math.cos(ang) * b.radius,
+          b.center[1] + Math.sin(elapsedSeconds * 0.7 + b.phase) * 0.9,
+          b.center[2] + Math.sin(ang) * b.radius,
+        );
+        b.group.rotation.y = -ang;
+        const flap = Math.sin(elapsedSeconds * 6.5 + b.phase) * 0.45;
+        b.leftWing.rotation.z = flap;
+        b.rightWing.rotation.z = -flap;
+      }
+
+      // Emit gentle woodsmoke from completed chimneys/braziers & light dust from active builds
+      smokeEmitTimer += dt;
+      if (smokeEmitTimer >= 0.48) {
+        smokeEmitTimer = 0;
+        for (const [, entry] of buildingVisualsById) {
+          if (
+            entry.entity.constructionState === 'completed' &&
+            entry.group.userData.smokeEmitterLocal
+          ) {
+            const local = entry.group.userData.smokeEmitterLocal as THREE.Vector3;
+            const cosR = Math.cos(entry.entity.rotationY);
+            const sinR = Math.sin(entry.entity.rotationY);
+            const wx = entry.entity.position.x + local.x * cosR + local.z * sinR;
+            const wz = entry.entity.position.z - local.x * sinR + local.z * cosR;
+            spawnVfxBurst(wx, entry.entity.position.y + local.y, wz, 'smoke');
+          } else if (entry.entity.constructionState === 'under_construction' && Math.random() < 0.45) {
+            spawnVfxBurst(
+              entry.entity.position.x,
+              entry.entity.position.y + 0.9,
+              entry.entity.position.z,
+              'dust',
+            );
+          }
+        }
+      }
+
+      // Step active VFX sprites
+      for (const slot of vfxPool) {
+        if (!slot.active) continue;
+        slot.age += dt;
+        const t = slot.age / slot.life;
+        if (t >= 1) {
+          slot.active = false;
+          slot.sprite.visible = false;
+          continue;
+        }
+        slot.sprite.position.x += slot.vx * dt;
+        slot.sprite.position.y += slot.vy * dt;
+        slot.sprite.position.z += slot.vz * dt;
+        const scale = slot.startScale + (slot.endScale - slot.startScale) * t;
+        slot.sprite.scale.setScalar(scale);
+        const fade = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8;
+        slot.mat.opacity = Math.max(0, slot.baseOpacity * fade);
+      }
+    },
+    spawnVfxBurst,
     dispose: () => {
       for (const rig of characterRigs) {
         rig.dispose();

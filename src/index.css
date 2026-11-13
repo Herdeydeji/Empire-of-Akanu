@@ -6,6 +6,13 @@
     --font-display: 'Cinzel', Georgia, serif;
     --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
+    --akanu-bg: #171512;
+    --akanu-surface: #292017;
+    --akanu-gold: #D4A64A;
+    --akanu-gold-muted: #A77A32;
+    --akanu-ivory: #F2E8D5;
+    --akanu-border: #76513A;
+    --akanu-muted: #B8AA96;
   }
 
   html,
@@ -16,10 +23,17 @@
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background-color: #120e0a;
-    color: #f3ead8;
+    background-color: #171512;
+    color: #F2E8D5;
     font-family: var(--font-sans);
     touch-action: none;
+  }
+
+  button:focus-visible,
+  select:focus-visible,
+  input:focus-visible {
+    outline: 2px solid #D4A64A;
+    outline-offset: 2px;
   }
 }
 
@@ -36,21 +50,30 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Custom subtle scrollbars inside strategy modals */
+/* Custom subtle scrollbars inside strategy panels */
 .akanu-scroll::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .akanu-scroll::-webkit-scrollbar-track {
-  background: rgba(20, 15, 10, 0.6);
+  background: #110f0d;
 }
 
 .akanu-scroll::-webkit-scrollbar-thumb {
-  background: rgba(198, 154, 75, 0.45);
+  background: rgba(167, 122, 50, 0.55);
   border-radius: 3px;
 }
 
 .akanu-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(218, 174, 92, 0.75);
+  background: #D4A64A;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

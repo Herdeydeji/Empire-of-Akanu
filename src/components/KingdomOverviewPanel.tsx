@@ -1,109 +1,238 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Eye, ScrollText, Shield, X } from 'lucide-react';
+import { KINGDOM_PERSONALITIES } from '../config/aiPersonalities';
 import { KINGDOMS } from '../config/kingdoms';
 import {
+  AIDifficulty,
   AIKingdomRuntime,
   DiplomaticRelation,
   KingdomId,
   WorldEventItem,
 } from '../types/game';
+import { KingdomEmblem } from './KingdomEmblem';
 
 interface KingdomOverviewPanelProps {
   playerKingdomId: KingdomId;
+  difficultyLevel?: AIDifficulty;
   aiKingdoms: Record<KingdomId, AIKingdomRuntime>;
   relations: Record<KingdomId, DiplomaticRelation>;
   events: WorldEventItem[];
   onClose: () => void;
 }
 
-export const KingdomOverviewPanel: FC<KingdomOverviewPanelProps> = ({
+const DIFFICULTY_LABELS: Record<AIDifficulty, string> = {
+  easy: 'Easy',
+  normal: 'Normal',
+  hard: 'Hard',
+  very_hard: 'Very Hard',
+};
+
+export const KingdomOverviewPanel: React.FC<KingdomOverviewPanelProps> = ({
   playerKingdomId,
+  difficultyLevel = 'normal',
   aiKingdoms,
   relations,
   events,
   onClose,
 }) => {
+  const [expandedLogsId, setExpandedLogsId] = useState<KingdomId | null>(null);
   const allIds: KingdomId[] = ['oru', 'zambara', 'kemetra', 'aseka', 'nambara'];
+  const playerIntelMap = aiKingdoms[playerKingdomId]?.knownIntelligence;
+
+  const isKnownKingdom = (kId: KingdomId) =>
+    kId === playerKingdomId ||
+    Boolean(playerIntelMap?.[kId]?.discovered || relations[kId]?.discovered);
+
+  const visibleEvents = events.filter((evt) => {
+    if (!evt.sourceKingdomId && !evt.targetKingdomId) return true;
+    return Boolean(
+      (evt.sourceKingdomId && isKnownKingdom(evt.sourceKingdomId)) ||
+        (evt.targetKingdomId && isKnownKingdom(evt.targetKingdomId)),
+    );
+  });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-      <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col bg-slate-950 border border-amber-900/50 rounded-2xl shadow-2xl text-slate-100 overflow-hidden">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Akanu World Intelligence and Chronicle"
+      className="fixed inset-0 z-40 pointer-events-auto flex items-center justify-center bg-[#0d0b09]/85 p-3 sm:p-5"
+    >
+      <div className="relative w-full max-w-5xl max-h-[88vh] flex flex-col bg-[#171512] border border-[#A77A32]/65 rounded-lg shadow-2xl text-[#F2E8D5] overflow-hidden">
         {/* Top Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-amber-900/40 bg-slate-900/80">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-amber-200 font-serif">
-              Akanu World Intelligence & Chronicle
-            </h2>
-            <p className="text-xs text-slate-400">
-              Overview of sovereign powers, active posture, territorial reach, and historic event logs.
+        <div className="flex items-center justify-between gap-4 px-5 py-3.5 border-b border-[#76513A]/60 bg-[#292017]">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <Eye className="w-4 h-4 text-[#D4A64A] shrink-0" aria-hidden="true" />
+              <h2 className="font-display text-lg sm:text-xl font-bold text-[#F2E8D5]">
+                Akanu World Intelligence & Chronicle
+              </h2>
+              <span className="text-xs font-medium text-[#D4A64A]">
+                · AI {DIFFICULTY_LABELS[difficultyLevel]}
+              </span>
+            </div>
+            <p className="text-xs text-[#B8AA96] mt-0.5">
+              Reconnaissance estimates, territorial zones, kingdom stability, and historical chronicle.
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="px-3 py-1.5 text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
+            aria-label="Close World Overview"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#F2E8D5] bg-[#171512] hover:bg-[#362a1e] rounded border border-[#76513A] transition-colors duration-150 cursor-pointer whitespace-nowrap"
           >
-            Close ✕
+            <X className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Close</span>
           </button>
         </div>
 
         {/* Main Body */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-amber-900/30 overflow-hidden">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-[#76513A]/45 overflow-hidden">
           {/* Kingdom Intelligence Matrix */}
-          <div className="lg:col-span-2 p-6 overflow-y-auto space-y-4">
-            <h3 className="text-xs font-semibold text-amber-400/80 uppercase tracking-wider mb-2">
-              Sovereign Power Matrix
+          <div className="lg:col-span-7 p-4 sm:p-5 overflow-y-auto akanu-scroll space-y-3">
+            <h3 className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#D4A64A] tracking-wide">
+              <Shield className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Sovereign Power Matrix (Fog-of-Knowledge Active)</span>
             </h3>
 
-            <div className="grid grid-cols-1 gap-3">
+            <div className="space-y-2.5">
               {allIds.map((kId) => {
                 const kConfig = KINGDOMS[kId];
+                const personality = KINGDOM_PERSONALITIES[kId];
                 const aiRuntime = aiKingdoms[kId];
                 const rel = relations[kId];
+                const intel = playerIntelMap?.[kId];
                 const isPlayer = kId === playerKingdomId;
+                const isDiscovered = isPlayer || Boolean(intel?.discovered || rel?.discovered);
+                const logs = aiRuntime?.decisionLog ?? [];
+                const showLogs = expandedLogsId === kId;
 
                 return (
                   <div
                     key={kId}
-                    className={`p-4 rounded-xl border transition-all ${
+                    className={`p-3.5 rounded-md border ${
                       isPlayer
-                        ? 'bg-amber-950/30 border-amber-500/50 shadow-md'
-                        : 'bg-slate-900/60 border-slate-800'
+                        ? 'bg-[#292017] border-[#D4A64A]/75'
+                        : isDiscovered
+                          ? 'bg-[#292017]/55 border-[#76513A]/60'
+                          : 'bg-[#110f0d] border-[#76513A]/35'
                     }`}
                   >
-                    <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-2">
-                      <div>
-                        <span className="font-bold text-base text-amber-200">{kConfig.name}</span>
-                        {isPlayer && (
-                          <span className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                            YOUR KINGDOM
+                    <div className="flex items-center justify-between gap-2 border-b border-[#76513A]/40 pb-2 mb-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <KingdomEmblem kingdomId={kId} size={28} className="shrink-0" />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-display font-bold text-sm sm:text-base text-[#F2E8D5] truncate">
+                              {kConfig.name}
+                            </span>
+                            {isPlayer && (
+                              <span className="text-[11px] font-semibold text-[#D4A64A]">
+                                · Your Realm
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-[#B8AA96] truncate">
+                            {personality.archetypeTitle} · {kConfig.specialisation}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0 text-xs">
+                        {isDiscovered ? (
+                          <span className="text-[#B8AA96]">
+                            Posture:{' '}
+                            <strong className="text-[#F2E8D5] capitalize">
+                              {aiRuntime?.strategicPosture || 'consolidate'}
+                            </strong>
                           </span>
+                        ) : (
+                          <span className="text-[#B8AA96]/70 font-medium">Undiscovered</span>
                         )}
                       </div>
-                      <span className="text-xs text-slate-400 font-medium">
-                        Posture: <strong className="text-slate-200 capitalize">{aiRuntime?.strategicPosture || 'Consolidate'}</strong>
-                      </span>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 text-xs">
-                      <div>
-                        <span className="text-slate-400 block text-[11px]">Specialization</span>
-                        <span className="text-slate-200 font-medium">{kConfig.specialisation}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block text-[11px]">Progression</span>
-                        <span className="text-slate-200 font-medium">{aiRuntime?.progressionStage || 'Settlement'}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block text-[11px]">Diplomatic State</span>
-                        <span className="text-slate-200 font-medium capitalize">
-                          {isPlayer ? 'Sovereign' : rel?.state ? rel.state.replace('_', ' ') : 'Neutral'}
-                        </span>
-                      </div>
-                    </div>
+                    {!isDiscovered ? (
+                      <p className="text-xs text-[#B8AA96]/80 italic">
+                        No scouts or envoys have observed {kConfig.name}. Explore the frontier or send
+                        a diplomatic envoy to establish intelligence.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                          <div>
+                            <span className="text-[#B8AA96] block text-[10px]">Stage & Zones</span>
+                            <span className="text-[#F2E8D5] font-medium font-mono-num">
+                              {aiRuntime?.progressionStage || 'Settlement'} ·{' '}
+                              {aiRuntime?.territories?.length ?? 1} Zone
+                              {(aiRuntime?.territories?.length ?? 1) === 1 ? '' : 's'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[#B8AA96] block text-[10px]">Stability</span>
+                            <span className="text-[#86efac] font-semibold font-mono-num">
+                              {Math.round(aiRuntime?.stability ?? 80)}%
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[#B8AA96] block text-[10px]">
+                              {isPlayer ? 'Population' : 'Est. Military Power'}
+                            </span>
+                            <span className="text-[#D4A64A] font-semibold font-mono-num">
+                              {isPlayer
+                                ? `${aiRuntime?.population.current ?? 0}/${aiRuntime?.population.capacity ?? 0}`
+                                : intel?.estimatedMilitaryStrength ?? 0}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[#B8AA96] block text-[10px]">Relation</span>
+                            <span className="text-[#F2E8D5] font-medium capitalize">
+                              {isPlayer ? 'Sovereign' : rel?.state ? rel.state.replace('_', ' ') : 'Neutral'}
+                            </span>
+                          </div>
+                        </div>
 
-                    {!isPlayer && aiRuntime && (
-                      <div className="mt-2 pt-2 border-t border-slate-800/60 text-[11px] text-slate-400">
-                        Strategic Activity: <span className="text-slate-300 italic">{aiRuntime.lastDecisionSummary}</span>
-                      </div>
+                        {!isPlayer && aiRuntime && (
+                          <div className="mt-2.5 pt-2 border-t border-[#76513A]/35 space-y-1.5">
+                            <div className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="text-[#B8AA96] truncate">
+                                Recent Mandate:{' '}
+                                <span className="text-[#F2E8D5]">{aiRuntime.lastDecisionSummary}</span>
+                              </span>
+                              {logs.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedLogsId(showLogs ? null : kId)}
+                                  className="text-[#D4A64A] hover:underline shrink-0 cursor-pointer whitespace-nowrap"
+                                >
+                                  {showLogs ? 'Hide Log' : `AI Log (${logs.length})`}
+                                </button>
+                              )}
+                            </div>
+
+                            {showLogs && logs.length > 0 && (
+                              <div className="rounded bg-[#110f0d] border border-[#76513A]/45 p-2 space-y-1 max-h-28 overflow-y-auto akanu-scroll text-[11px]">
+                                {logs.slice(0, 8).map((entry, idx) => (
+                                  <div
+                                    key={`${kId}_log_${idx}`}
+                                    className="flex items-center justify-between gap-2 text-[#F2E8D5]/90"
+                                  >
+                                    <span className="truncate">
+                                      <span className="text-[#D4A64A] uppercase text-[10px] mr-1.5">
+                                        [{entry.category}]
+                                      </span>
+                                      {entry.summary}
+                                    </span>
+                                    <span className="font-mono-num text-[10px] text-[#B8AA96] shrink-0">
+                                      u={entry.score}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 );
@@ -112,27 +241,35 @@ export const KingdomOverviewPanel: FC<KingdomOverviewPanelProps> = ({
           </div>
 
           {/* World Event Chronicle */}
-          <div className="p-6 bg-slate-900/40 overflow-y-auto flex flex-col">
-            <h3 className="text-xs font-semibold text-amber-400/80 uppercase tracking-wider mb-3">
-              World Event Chronicle
+          <div className="lg:col-span-5 p-4 sm:p-5 bg-[#110f0d] overflow-y-auto akanu-scroll flex flex-col">
+            <h3 className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#D4A64A] tracking-wide mb-3">
+              <ScrollText className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>World Event Chronicle</span>
             </h3>
 
-            <div className="space-y-3 flex-1 overflow-y-auto pr-1">
-              {events.length === 0 ? (
-                <div className="text-xs text-slate-500 italic">No historical events recorded yet.</div>
+            <div className="space-y-2 flex-1 overflow-y-auto akanu-scroll pr-1">
+              {visibleEvents.length === 0 ? (
+                <div className="text-xs text-[#B8AA96] italic">
+                  No major treaties, border skirmishes, or sovereign milestones recorded yet.
+                </div>
               ) : (
-                events.map((evt) => (
-                  <div
-                    key={evt.id}
-                    className="p-3 bg-slate-900/80 rounded-xl border border-slate-800/80 text-xs space-y-1"
-                  >
-                    <div className="font-semibold text-amber-200 flex items-center justify-between">
-                      <span>{evt.title}</span>
-                      <span className="text-[10px] text-slate-500 uppercase">{evt.kind}</span>
+                [...visibleEvents]
+                  .slice(-25)
+                  .reverse()
+                  .map((evt) => (
+                    <div
+                      key={evt.id}
+                      className="p-2.5 bg-[#171512] rounded border border-[#76513A]/50 text-xs space-y-1"
+                    >
+                      <div className="font-semibold text-[#D4A64A] flex items-center justify-between gap-2">
+                        <span className="truncate">{evt.title}</span>
+                        <span className="text-[10px] text-[#B8AA96] uppercase shrink-0 font-mono-num">
+                          {Math.floor(evt.timestampSec)}s · {evt.kind}
+                        </span>
+                      </div>
+                      <p className="text-[#F2E8D5]/90 leading-relaxed text-[11px]">{evt.description}</p>
                     </div>
-                    <p className="text-slate-300 leading-relaxed text-[11px]">{evt.description}</p>
-                  </div>
-                ))
+                  ))
               )}
             </div>
           </div>
@@ -141,4 +278,3 @@ export const KingdomOverviewPanel: FC<KingdomOverviewPanelProps> = ({
     </div>
   );
 };
-type FC<P = {}> = React.FC<P>;

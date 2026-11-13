@@ -1,4 +1,13 @@
 import React, { useState } from 'react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Handshake,
+  ScrollText,
+  Send,
+  Shield,
+  Swords,
+} from 'lucide-react';
 import { KINGDOMS } from '../config/kingdoms';
 import {
   DiplomaticRelation,
@@ -7,12 +16,15 @@ import {
   TreatyKind,
   WorldEventItem,
 } from '../types/game';
+import { KingdomEmblem } from './KingdomEmblem';
 
 interface DiplomacyPanelProps {
   playerKingdomId: KingdomId;
   relations: Record<KingdomId, DiplomaticRelation>;
   events: WorldEventItem[];
   onProposeTreaty: (targetId: KingdomId, kind: TreatyKind) => { accepted: boolean; reason: string };
+  onSendEnvoy?: (targetId: KingdomId) => { ok: boolean; reason: string };
+  onProposePeace?: (targetId: KingdomId) => { accepted: boolean; reason: string };
   onDeclareWar: (targetId: KingdomId) => void;
   onClose: () => void;
 }
@@ -22,218 +34,348 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   relations,
   events,
   onProposeTreaty,
+  onSendEnvoy,
+  onProposePeace,
   onDeclareWar,
-  onClose,
 }) => {
-  const [selectedTargetId, setSelectedTargetId] = useState<KingdomId>('zambara');
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const rivalIds = (Object.keys(KINGDOMS) as KingdomId[]).filter(
+    (id) => id !== playerKingdomId,
+  );
+  const [selectedTargetId, setSelectedTargetId] = useState<KingdomId>(
+    rivalIds[0] ?? 'zambara',
+  );
+  const [feedbackMessage, setFeedbackMessage] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
 
-  const rivalIds = (Object.keys(relations) as KingdomId[]).filter((id) => id !== playerKingdomId);
-  const activeRel = relations[selectedTargetId] || {
-    targetKingdomId: selectedTargetId,
+  const effectiveTargetId =
+    selectedTargetId !== playerKingdomId ? selectedTargetId : rivalIds[0] ?? 'zambara';
+
+  const activeRel: DiplomaticRelation = relations[effectiveTargetId] || {
+    targetKingdomId: effectiveTargetId,
     state: 'neutral',
     score: 0,
-    discovered: true,
+    discovered: false,
     activeTreaties: [],
     lastInteractionTimeSec: 0,
     grievanceCount: 0,
   };
 
-  const selectedKingdom = KINGDOMS[selectedTargetId];
+  const selectedKingdom = KINGDOMS[effectiveTargetId];
+  const isDiscovered = activeRel.discovered;
+  const isAtWar = activeRel.state === 'at_war';
+
+  const showFeedback = (ok: boolean, text: string) => {
+    setFeedbackMessage({ ok, text });
+    window.setTimeout(() => {
+      setFeedbackMessage((curr) => (curr?.text === text ? null : curr));
+    }, 4500);
+  };
 
   const handlePropose = (kind: TreatyKind) => {
-    const result = onProposeTreaty(selectedTargetId, kind);
-    setFeedbackMessage(`${result.accepted ? 'Accepted' : 'Declined'}: ${result.reason}`);
-    setTimeout(() => setFeedbackMessage(null), 4000);
+    const result = onProposeTreaty(effectiveTargetId, kind);
+    showFeedback(result.accepted, `${result.accepted ? 'Accepted' : 'Declined'}: ${result.reason}`);
+  };
+
+  const handleEnvoy = () => {
+    if (!onSendEnvoy) return;
+    const result = onSendEnvoy(effectiveTargetId);
+    showFeedback(result.ok, result.reason);
+  };
+
+  const handlePeace = () => {
+    if (!onProposePeace) return;
+    const result = onProposePeace(effectiveTargetId);
+    showFeedback(result.accepted, `${result.accepted ? 'Peace Signed' : 'Refused'}: ${result.reason}`);
   };
 
   const handleWar = () => {
-    onDeclareWar(selectedTargetId);
-    setFeedbackMessage(`War formally declared against ${selectedKingdom.name}!`);
-    setTimeout(() => setFeedbackMessage(null), 4000);
+    onDeclareWar(effectiveTargetId);
+    showFeedback(false, `War formally declared against ${selectedKingdom.name}!`);
   };
 
-  const getStateColor = (state: DiplomaticRelationState) => {
+  const getStateBadgeClass = (state: DiplomaticRelationState, discovered: boolean) => {
+    if (!discovered) {
+      return 'text-[#B8AA96] border-[#76513A]/60 bg-[#171512]';
+    }
     switch (state) {
       case 'allied':
-        return 'text-emerald-400 border-emerald-500/40 bg-emerald-950/40';
+        return 'text-[#86efac] border-[#4ca86b]/60 bg-[#132619]';
       case 'friendly':
-        return 'text-teal-300 border-teal-500/40 bg-teal-950/40';
+        return 'text-[#7dd3fc] border-[#3b82f6]/50 bg-[#112130]';
       case 'neutral':
-        return 'text-amber-200 border-amber-500/40 bg-amber-950/40';
+        return 'text-[#D4A64A] border-[#A77A32]/60 bg-[#292017]';
       case 'hostile':
-        return 'text-orange-400 border-orange-500/40 bg-orange-950/40';
+        return 'text-[#fdba74] border-[#ea580c]/60 bg-[#2b180e]';
       case 'at_war':
-        return 'text-rose-400 border-rose-500/40 bg-rose-950/40';
+        return 'text-[#fca5a5] border-[#dc2626]/70 bg-[#2e1212]';
       default:
-        return 'text-slate-400 border-slate-500/40 bg-slate-950/40';
+        return 'text-[#B8AA96] border-[#76513A]/50 bg-[#171512]';
     }
   };
 
+  const recentRelatedEvents = events
+    .filter(
+      (e) =>
+        e.sourceKingdomId === effectiveTargetId ||
+        e.targetKingdomId === effectiveTargetId,
+    )
+    .slice(-3)
+    .reverse();
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-      <div className="relative w-full max-w-4xl max-h-[90vh] flex flex-col bg-slate-950 border border-amber-900/50 rounded-2xl shadow-2xl text-slate-100 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-amber-900/40 bg-slate-900/80">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-amber-200 font-serif">
-              Sovereign Diplomacy & Treaties
-            </h2>
-            <p className="text-xs text-slate-400">
-              Manage non-aggression pacts, commercial trade agreements, and bilateral alliances.
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
-          >
-            Close ✕
-          </button>
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 text-xs sm:max-h-[340px] sm:overflow-y-auto akanu-scroll pr-1">
+      {/* Left 4 cols: Rival Kingdom Selector */}
+      <div className="lg:col-span-4 space-y-1.5">
+        <div className="text-[11px] font-semibold text-[#D4A64A] tracking-wide">
+          Rival Sovereign Realms
         </div>
+        <div className="space-y-1.5">
+          {rivalIds.map((rId) => {
+            const rConfig = KINGDOMS[rId];
+            const rel = relations[rId];
+            const isSelected = rId === effectiveTargetId;
+            const discovered = rel?.discovered ?? false;
+            const stateLabel = discovered
+              ? (rel?.state || 'neutral').replace('_', ' ').toUpperCase()
+              : 'UNCHARTED';
 
-        {/* Content Split */}
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-amber-900/30 overflow-hidden">
-          {/* Kingdom List Selector */}
-          <div className="p-4 space-y-2 overflow-y-auto bg-slate-900/40">
-            <div className="text-xs font-semibold text-amber-400/80 uppercase tracking-wider mb-2">
-              Discovered Kingdoms
+            return (
+              <button
+                key={rId}
+                type="button"
+                onClick={() => setSelectedTargetId(rId)}
+                aria-pressed={isSelected}
+                className={`w-full text-left p-2.5 rounded border transition-colors duration-150 cursor-pointer ${
+                  isSelected
+                    ? 'bg-[#292017] border-[#D4A64A]'
+                    : 'bg-[#171512] hover:bg-[#292017]/65 border-[#76513A]/55'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <KingdomEmblem kingdomId={rId} size={22} className="shrink-0" />
+                    <span className="font-bold text-[#F2E8D5] truncate">{rConfig.name}</span>
+                  </div>
+                  <span
+                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border shrink-0 ${getStateBadgeClass(
+                      rel?.state || 'neutral',
+                      discovered,
+                    )}`}
+                  >
+                    {stateLabel}
+                  </span>
+                </div>
+                <div className="text-[11px] text-[#B8AA96] mt-1 flex items-center justify-between">
+                  <span className="truncate">{rConfig.specialisation}</span>
+                  <span className="font-mono-num text-[#D4A64A] shrink-0">
+                    {discovered ? `Score ${Math.round(rel?.score ?? 0)}` : 'Unexplored'}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Right 8 cols: Bilateral Relations, Treaties & Actions */}
+      <div className="lg:col-span-8 flex flex-col justify-between rounded bg-[#292017]/65 border border-[#76513A]/60 p-3 space-y-2.5">
+        <div className="space-y-2.5">
+          {/* Sovereign Header */}
+          <div className="flex items-start justify-between gap-3 border-b border-[#76513A]/45 pb-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <KingdomEmblem kingdomId={effectiveTargetId} size={36} className="shrink-0" />
+              <div className="min-w-0">
+                <h4 className="font-display text-base font-bold text-[#F2E8D5] truncate">
+                  {selectedKingdom.name}
+                </h4>
+                <p className="text-[11px] text-[#B8AA96] truncate">
+                  {selectedKingdom.title} · {selectedKingdom.specialisation}
+                </p>
+              </div>
             </div>
-            {rivalIds.map((rId) => {
-              const rConfig = KINGDOMS[rId];
-              const rel = relations[rId];
-              const isSelected = rId === selectedTargetId;
-
-              return (
-                <button
-                  key={rId}
-                  onClick={() => setSelectedTargetId(rId)}
-                  className={`w-full text-left p-3 rounded-xl border transition-all ${
-                    isSelected
-                      ? 'bg-amber-900/30 border-amber-500/60 shadow-md'
-                      : 'bg-slate-900/60 border-slate-800 hover:bg-slate-800/60'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-sm text-slate-200">{rConfig.name}</span>
-                    <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${getStateColor(
-                        rel?.state || 'neutral',
-                      )}`}
-                    >
-                      {rel?.state ? rel.state.replace('_', ' ').toUpperCase() : 'NEUTRAL'}
-                    </span>
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-                    <span>Relation: <strong className="text-amber-200 tabular-nums">{rel?.score ?? 0}</strong></span>
-                    <span>·</span>
-                    <span>{rConfig.title}</span>
-                  </div>
-                </button>
-              );
-            })}
+            <span
+              className={`px-2.5 py-1 text-[11px] font-bold rounded border shrink-0 ${getStateBadgeClass(
+                activeRel.state,
+                isDiscovered,
+              )}`}
+            >
+              {isDiscovered ? activeRel.state.replace('_', ' ').toUpperCase() : 'UNDISCOVERED'}
+            </span>
           </div>
 
-          {/* Detailed Kingdom Inspection & Diplomacy Actions */}
-          <div className="md:col-span-2 p-6 flex flex-col justify-between overflow-y-auto space-y-6">
-            <div>
-              {/* Sovereign Banner */}
-              <div className="flex items-start justify-between border-b border-slate-800 pb-4">
-                <div>
-                  <h3 className="text-2xl font-bold text-amber-200">{selectedKingdom.name}</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">{selectedKingdom.specialisation} · {selectedKingdom.culturalInspirationNote}</p>
-                </div>
-                <div
-                  className={`px-3 py-1 text-xs font-bold rounded-lg border ${getStateColor(
-                    activeRel.state,
-                  )}`}
+          {!isDiscovered ? (
+            <div className="rounded bg-[#171512] border border-[#76513A]/55 p-3 space-y-2">
+              <p className="text-[#B8AA96] leading-relaxed">
+                Your scouts have not yet reached the borders of{' '}
+                <strong className="text-[#F2E8D5]">{selectedKingdom.name}</strong>. Send soldiers
+                or scouts across the frontier to discover them organically, or dispatch a royal
+                envoy now to open diplomatic channels.
+              </p>
+              {onSendEnvoy && (
+                <button
+                  type="button"
+                  onClick={handleEnvoy}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
                 >
-                  {activeRel.state.replace('_', ' ').toUpperCase()}
+                  <Send className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Dispatch Envoy & Gift (100 Gold)</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="p-2 rounded bg-[#171512] border border-[#76513A]/45">
+                  <div className="text-[10px] text-[#B8AA96]">Standing</div>
+                  <div className="text-base font-bold font-mono-num text-[#D4A64A]">
+                    {Math.round(activeRel.score)} / 100
+                  </div>
                 </div>
-              </div>
-
-              {/* Status Overview Metrics */}
-              <div className="grid grid-cols-3 gap-3 my-4">
-                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800">
-                  <div className="text-[11px] text-slate-400">Diplomatic Score</div>
-                  <div className="text-xl font-bold text-amber-300 tabular-nums">{activeRel.score} / 100</div>
-                </div>
-                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800">
-                  <div className="text-[11px] text-slate-400">Active Treaties</div>
-                  <div className="text-xl font-bold text-teal-300 tabular-nums">
+                <div className="p-2 rounded bg-[#171512] border border-[#76513A]/45">
+                  <div className="text-[10px] text-[#B8AA96]">Active Pacts</div>
+                  <div className="text-base font-bold font-mono-num text-[#86efac]">
                     {activeRel.activeTreaties.length}
                   </div>
                 </div>
-                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800">
-                  <div className="text-[11px] text-slate-400">Grievances Recorded</div>
-                  <div className="text-xl font-bold text-rose-400 tabular-nums">{activeRel.grievanceCount}</div>
+                <div className="p-2 rounded bg-[#171512] border border-[#76513A]/45">
+                  <div className="text-[10px] text-[#B8AA96]">Grievances</div>
+                  <div className="text-base font-bold font-mono-num text-[#fca5a5]">
+                    {activeRel.grievanceCount}
+                  </div>
                 </div>
               </div>
 
-              {/* Description */}
-              <p className="text-xs text-slate-300 leading-relaxed bg-slate-900/50 p-3 rounded-xl border border-slate-800">
-                {selectedKingdom.description}
-              </p>
-
-              {/* Active Treaties List */}
-              <div className="mt-4">
-                <div className="text-xs font-semibold text-amber-300 mb-2">Active Bilateral Pacts</div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#D4A64A] mb-1">
+                  Active Bilateral Pacts
+                </div>
                 {activeRel.activeTreaties.length === 0 ? (
-                  <div className="text-xs text-slate-500 italic">No formal treaties currently active.</div>
+                  <div className="text-[11px] text-[#B8AA96] italic">
+                    No active treaties. Trade Pacts grant +15% market gold tariffs per partner.
+                  </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {activeRel.activeTreaties.map((t) => (
                       <div
                         key={t.id}
-                        className="flex items-center justify-between p-2.5 bg-slate-900 rounded-lg border border-slate-800 text-xs"
+                        className="flex items-center gap-2 px-2.5 py-1 rounded bg-[#171512] border border-[#A77A32]/50 text-[11px]"
                       >
-                        <span className="font-semibold text-amber-200 capitalize">
+                        <span className="font-semibold text-[#F2E8D5] capitalize">
                           {t.kind.replace('_', ' ')}
                         </span>
-                        <span className="text-slate-400 tabular-nums">
-                          {Math.ceil(t.durationRemainingSec / 60)} mins remaining
+                        <span className="font-mono-num text-[#B8AA96]">
+                          {Math.ceil(t.durationRemainingSec / 60)}m
                         </span>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
+            </>
+          )}
 
-              {/* Action Response Banner */}
-              {feedbackMessage && (
-                <div className="mt-4 p-3 bg-amber-950/80 border border-amber-600/50 rounded-xl text-xs text-amber-200 font-medium">
-                  {feedbackMessage}
+          {recentRelatedEvents.length > 0 && (
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-[#B8AA96]">
+                <ScrollText className="w-3 h-3 text-[#A77A32]" aria-hidden="true" />
+                <span>Recent Diplomatic Dispatch</span>
+              </div>
+              {recentRelatedEvents.map((evt) => (
+                <div
+                  key={evt.id}
+                  className="px-2.5 py-1.5 rounded bg-[#171512] border border-[#76513A]/40 text-[11px] text-[#F2E8D5]"
+                >
+                  <span className="font-semibold text-[#D4A64A]">{evt.title}:</span>{' '}
+                  {evt.description}
                 </div>
-              )}
+              ))}
             </div>
+          )}
 
-            {/* Action Buttons */}
-            <div className="border-t border-slate-800 pt-4 grid grid-cols-2 md:grid-cols-4 gap-2">
-              <button
-                onClick={() => handlePropose('non_aggression')}
-                className="px-3 py-2 text-xs font-semibold text-slate-100 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
-              >
-                Non-Aggression
-              </button>
-              <button
-                onClick={() => handlePropose('trade_pact')}
-                className="px-3 py-2 text-xs font-semibold text-slate-100 bg-teal-900/60 hover:bg-teal-800/80 rounded-lg border border-teal-700/50 transition-colors"
-              >
-                Trade Pact
-              </button>
-              <button
-                onClick={() => handlePropose('defensive_alliance')}
-                className="px-3 py-2 text-xs font-semibold text-slate-100 bg-amber-900/60 hover:bg-amber-800/80 rounded-lg border border-amber-700/50 transition-colors"
-              >
-                Defensive Alliance
-              </button>
-              <button
-                onClick={handleWar}
-                className="px-3 py-2 text-xs font-semibold text-rose-100 bg-rose-900/80 hover:bg-rose-800 rounded-lg border border-rose-700 transition-colors"
-              >
-                Declare War
-              </button>
+          {feedbackMessage && (
+            <div
+              role="status"
+              className={`flex items-center gap-2 p-2 rounded border text-xs font-medium ${
+                feedbackMessage.ok
+                  ? 'bg-[#132619] border-[#4ca86b]/60 text-[#d7f7e1]'
+                  : 'bg-[#2c1512] border-[#dc2626]/60 text-[#fbd5cf]'
+              }`}
+            >
+              {feedbackMessage.ok ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+              ) : (
+                <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              )}
+              <span>{feedbackMessage.text}</span>
             </div>
-          </div>
+          )}
+        </div>
+
+        {/* Diplomatic Action Buttons */}
+        <div className="border-t border-[#76513A]/45 pt-2 flex flex-wrap items-center gap-1.5">
+          {onSendEnvoy && !isAtWar && (
+            <button
+              type="button"
+              onClick={handleEnvoy}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#171512] hover:bg-[#362a1e] border border-[#A77A32]/65 text-[11px] font-semibold text-[#D4A64A] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+            >
+              <Send className="w-3 h-3" aria-hidden="true" />
+              <span>Send Envoy (100g)</span>
+            </button>
+          )}
+
+          {!isAtWar && (
+            <>
+              <button
+                type="button"
+                onClick={() => handlePropose('non_aggression')}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#171512] hover:bg-[#362a1e] border border-[#76513A] text-[11px] font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              >
+                <Shield className="w-3 h-3 text-[#B8AA96]" aria-hidden="true" />
+                <span>Non-Aggression</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePropose('trade_pact')}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#182824] hover:bg-[#203832] border border-[#4ca86b]/55 text-[11px] font-semibold text-[#c9f7dc] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              >
+                <Handshake className="w-3 h-3" aria-hidden="true" />
+                <span>Trade Pact</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePropose('defensive_alliance')}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#D4A64A]/65 text-[11px] font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              >
+                <Shield className="w-3 h-3 text-[#D4A64A]" aria-hidden="true" />
+                <span>Defensive Alliance</span>
+              </button>
+            </>
+          )}
+
+          {(isAtWar || activeRel.state === 'hostile') && onProposePeace && (
+            <button
+              type="button"
+              onClick={handlePeace}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#22452c] hover:bg-[#2c5a39] border border-[#6ee7b7]/50 text-[11px] font-semibold text-[#e6ffef] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+            >
+              <Handshake className="w-3 h-3" aria-hidden="true" />
+              <span>Propose Peace Accord</span>
+            </button>
+          )}
+
+          {!isAtWar && (
+            <button
+              type="button"
+              onClick={handleWar}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#5c1b18] hover:bg-[#75221e] border border-[#f87171]/50 text-[11px] font-semibold text-[#fde2e0] transition-colors duration-150 cursor-pointer whitespace-nowrap ml-auto"
+            >
+              <Swords className="w-3 h-3" aria-hidden="true" />
+              <span>Declare War</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

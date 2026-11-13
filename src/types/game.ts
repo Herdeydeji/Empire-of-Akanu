@@ -398,6 +398,8 @@ export interface ArrowProjectile {
   startY: number;
   startZ: number;
   targetEntityId: string;
+  attackerKingdomId?: KingdomId;
+  isSiege?: boolean;
   progress: number; // 0..1
   speed: number;
   damage: number;
@@ -484,9 +486,20 @@ export interface PlacementPreviewState {
 
 export type TouchCommandMode = 'select' | 'move' | 'assign' | 'attack' | 'defend';
 
+export type MusicMood =
+  | 'menu'
+  | 'peaceful'
+  | 'expansion'
+  | 'diplomacy'
+  | 'military_prep'
+  | 'combat'
+  | 'victory'
+  | 'defeat';
+
 export interface AudioSettings {
   masterVolume: number;
   musicVolume: number;
+  ambienceVolume?: number;
   sfxVolume: number;
   muted: boolean;
 }
@@ -544,13 +557,56 @@ export interface DiplomaticRelation {
 
 export interface AIKingdomPersonality {
   id: KingdomId;
+  archetypeTitle: string;
   defensiveness: number; // 0..1
   expansionism: number; // 0..1
   engineeringFocus: number; // 0..1
   commerceFocus: number; // 0..1
   wildernessFocus: number; // 0..1
+  aggressionBias: number; // 0..1
+  diplomaticBias: number; // 0..1
+  retreatThreshold: number; // 0..1 fraction of force lost/low morale before retreating
+  attackStrengthRatio: number; // required estimated strength ratio to launch attack
+  targetArmyRatio: number; // target military share of population
+  preferredFormation: MilitaryFormationType;
+  preferredStance: MilitaryStance;
+  economyRatios: {
+    farmer: number;
+    woodcutter: number;
+    miner: number;
+    trader: number;
+    builder: number;
+    craftsperson: number;
+  };
   preferredUnits: MilitaryUnitClass[];
   preferredBuildings: BuildingArchetype[];
+}
+
+export interface TerritoryZone {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  radius: number;
+  isCapital: boolean;
+}
+
+export interface KingdomIntelligenceRecord {
+  targetKingdomId: KingdomId;
+  discovered: boolean;
+  lastSeenSec: number;
+  estimatedMilitaryStrength: number;
+  estimatedEconomicStrength: number;
+  estimatedPopulation: number;
+  knownSettlementLocations: { x: number; z: number; name: string }[];
+  recentHostileActions: number;
+}
+
+export interface AIDecisionLogEntry {
+  timestampSec: number;
+  category: 'economy' | 'settlement' | 'military' | 'diplomacy' | 'territory' | 'intel';
+  summary: string;
+  score: number;
 }
 
 export interface AIKingdomRuntime {
@@ -560,13 +616,35 @@ export interface AIKingdomRuntime {
   isPlayer: boolean;
   settlementCenter: { x: number; z: number };
   territoryRadius: number;
+  territories?: TerritoryZone[];
   resources: ResourceAmounts;
   capacities: ResourceCapacities;
+  rates?: ResourceRates;
   population: PopulationState;
+  economyStats?: EconomyStatistics;
+  militaryStats?: MilitaryStatistics;
+  hasUpkeepDeficit?: boolean;
+  stability?: number; // 0..100
   progressionStage: ProgressionStage;
-  strategicPosture: 'consolidate' | 'expand' | 'fortify' | 'trade' | 'mobilize' | 'attack';
+  strategicPosture:
+    | 'consolidate'
+    | 'expand'
+    | 'fortify'
+    | 'trade'
+    | 'mobilize'
+    | 'attack'
+    | 'defend'
+    | 'rebuild';
+  strategicObjectives?: string[];
   decisionTimerSec: number;
   lastDecisionSummary: string;
+  decisionLog?: AIDecisionLogEntry[];
+  knownIntelligence?: Record<KingdomId, KingdomIntelligenceRecord>;
+  discoveredResourceNodes?: string[];
+  lastAttackTimeSec?: number;
+  lastExpansionSec?: number;
+  lastDiplomacyTimeSec?: number;
+  defeatCount?: number;
 }
 
 export interface WorldEventItem {
@@ -610,3 +688,4 @@ export interface SaveGameData {
     resourceNodes: EnvironmentNodeEntity[];
   };
 }
+

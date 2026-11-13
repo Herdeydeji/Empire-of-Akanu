@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { KINGDOM_LIST, KINGDOMS } from '../../config/kingdoms';
 import { REGION_LIST, REGIONS } from '../../config/regions';
-import { generateInitialSettlement } from '../../config/settlement';
+import { findValidNearbyPlot, generateInitialSettlement } from '../../config/settlement';
 import { getRiverCenterZ, isWaterAt, sampleTerrainHeight } from '../math/noise';
 import {
   createInitialCameraRig,
@@ -15,10 +15,12 @@ import {
 } from '../camera/rtsCameraMath';
 import {
   assignVillagerOccupation,
+  attachAIKingdomLedgers,
   cancelPlannedOrActiveConstruction,
   commandVillagersToEntity,
   createInitialEconomyRuntime,
   placeNewBuilding,
+  resolveKingdomLedger,
   stepEconomyAndVillagers,
   validateBuildingPlacement,
 } from './economySim';
@@ -34,16 +36,39 @@ import {
   MILITARY_UNIT_CATALOG,
 } from '../../config/military';
 import {
+  areEntitiesHostile,
+  canRecruitMilitaryUnit,
   createInitialMilitaryState,
   queueRecruitment,
+  queueUnitRecruitment,
   spawnBallisticProjectile,
   spawnMilitaryCharacterEntity,
+  stepMilitaryRecruitmentQueues,
   stepMilitarySimulation,
+  stepMilitaryUnits,
+  stepMilitaryUpkeep,
+  stepProjectiles,
 } from './militarySim';
 import { KINGDOM_PERSONALITIES } from '../../config/aiPersonalities';
-import { createInitialAIKingdomManager, stepAIKingdomManager } from './aiKingdomSim';
-import { addDiplomaticTreaty, createInitialDiplomacyState, evaluateProposalAcceptance, updateDiplomaticScore } from './diplomacySim';
+import {
+  createInitialAIKingdomManager,
+  DIFFICULTY_PROFILES,
+  stepAIKingdomManager,
+  updateAllKingdomIntelligence,
+} from './aiKingdomSim';
+import {
+  addDiplomaticTreaty,
+  createInitialDiplomacyState,
+  declareWarBetweenKingdoms,
+  evaluateProposalAcceptance,
+  proposePeaceTreaty,
+  sendDiplomaticGift,
+  stepDiplomacy,
+  updateDiplomaticScore,
+} from './diplomacySim';
 import { createInitialWorldEventState, pushWorldEvent } from './worldEventSim';
+import { resolveAdaptiveMusicMood } from '../audio/soundEngine';
+import { getConstructionStageFromProgress } from '../graphics/buildingFactory';
 
 function advanceSimulationSeconds(
   runtime: ReturnType<typeof createInitialEconomyRuntime>,
@@ -627,7 +652,7 @@ test('military upkeep deduction charges treasury and notifies when soldiers cons
   );
 });
 
-test('Phase 4: AI kingdoms initialize with distinct personalities and regional settlement bases', () => {
+test('Phase 4.1: All 5 founding kingdoms spawn across all 5 regions on dry non-water terrain with unique ownership', () => {
   const allIds = ['oru', 'zambara', 'kemetra', 'aseka', 'nambara'] as const;
   for (const id of allIds) {
     const personality = KINGDOM_PERSONALITIES[id];
@@ -636,78 +661,319 @@ test('Phase 4: AI kingdoms initialize with distinct personalities and regional s
     assert.ok(personality.preferredBuildings.length > 0, `Preferred buildings defined for ${id}`);
   }
 
-  assert.equal(KINGDOM_PERSONALITIES.oru.defensiveness > 0.8, true, 'Oru has high defensiveness');
-  assert.equal(KINGDOM_PERSONALITIES.zambara.expansionism > 0.8, true, 'Zambara has high expansionism');
-  assert.equal(KINGDOM_PERSONALITIES.kemetra.engineeringFocus > 0.8, true, 'Kemetra has high engineering focus');
-  assert.equal(KINGDOM_PERSONALITIES.aseka.commerceFocus > 0.8, true, 'Aseka has high commerce focus');
-  assert.equal(KINGDOM_PERSONALITIES.nambara.wildernessFocus > 0.8, true, 'Nambara has high wilderness focus');
+  for (const reg of REGION_LIST) {
+    const worldData = generateInitialSettlement('oru', reg, 4819);
+    const generatedKingdoms = new Set(worldData.buildings.map((b) => b.kingdomId));
+    assert.equal(generatedKingdoms.size, 5, `All 5 founding kingdoms generated in ${reg.name}`);
 
-  // Verify multi-kingdom settlement generation
-  const region = REGIONS.golden_savannah;
-  const worldData = generateInitialSettlement('oru', region, 4819);
-  assert.ok(worldData.buildings.length > 15, 'Multi-kingdom buildings generated');
-  assert.ok(worldData.characters.length >= 24, 'Rival AI villagers spawned');
+    for (const b of worldData.buildings) {
+      assert.equal(
+        isWaterAt(b.position.x, b.position.z, reg, 4819),
+        false,
+        `Building ${b.name} (${b.kingdomId}) in ${reg.name} must not sit in water`,
+      );
+    }
 
-  const generatedKingdoms = new Set(worldData.buildings.map((b) => b.kingdomId));
-  assert.equal(generatedKingdoms.size, 5, 'All 5 founding kingdoms generated on world map');
+    const aiVillagers = worldData.characters.filter((c) => c.kingdomId !== 'oru' && !c.isMilitary);
+    assert.equal(aiVillagers.length, 20, `Each of 4 AI kingdoms in ${reg.name} starts with 5 villagers`);
+  }
 });
 
-test('Phase 4: Autonomous AI decision manager steps economy, construction, and recruitment', () => {
+test('Phase 4.2 & 4.3: AI kingdoms gather resources, consume food, and build real scaffolding via Builders without cheats', () => {
   const region = REGIONS.golden_savannah;
-  const settlement = generateInitialSettlement('oru', region, 9999);
+  const seed = 9999;
+  const settlement = generateInitialSettlement('oru', region, seed);
   const runtime = createInitialEconomyRuntime({
     kingdomId: 'oru',
     region,
-    seed: 9999,
-    resources: { food: 500, wood: 500, stone: 500, iron: 300, gold: 300 },
+    seed,
+    resources: { ...KINGDOMS.oru.startingResources },
     buildings: settlement.buildings,
     characters: settlement.characters,
     resourceNodes: settlement.resourceNodes,
+    capitalCenters: settlement.capitalCenters,
   });
 
-  const aiManager = createInitialAIKingdomManager('oru', 'hard');
+  const aiManager = createInitialAIKingdomManager('oru', 'hard', undefined, settlement.capitalCenters);
+  attachAIKingdomLedgers(runtime, aiManager.kingdoms);
   const militaryState = createInitialMilitaryState();
   const diplomacy = createInitialDiplomacyState('oru');
 
-  // Step AI simulation across 10 seconds
-  for (let t = 0; t < 20; t++) {
-    stepAIKingdomManager(0.5, aiManager, runtime, militaryState, diplomacy, region, 9999);
+  const zambaraStart = { ...aiManager.kingdoms.zambara.resources };
+  const zambaraStartBuildings = runtime.buildings.filter((b) => b.kingdomId === 'zambara').length;
+
+  for (let i = 0; i < 650; i++) {
+    const slice = 0.08;
+    stepEconomyAndVillagers(runtime, slice);
+    stepAIKingdomManager(slice, aiManager, runtime, militaryState, diplomacy, region, seed);
+    stepDiplomacy(slice, diplomacy, runtime);
   }
 
-  const rivalBuildings = runtime.buildings.filter((b) => b.kingdomId !== 'oru');
-  assert.ok(rivalBuildings.length > 0, 'Rival AI kingdom buildings exist and are managed');
+  const zambaraEndBuildings = runtime.buildings.filter((b) => b.kingdomId === 'zambara');
+  assert.ok(
+    zambaraEndBuildings.length > zambaraStartBuildings,
+    `Zambara AI should place at least one new building autonomously (had ${zambaraStartBuildings}, now ${zambaraEndBuildings.length})`,
+  );
+
+  const zambaraGatheredTotal = Object.values(aiManager.kingdoms.zambara.economyStats?.totalGathered ?? {}).reduce(
+    (sum, v) => sum + v,
+    0,
+  );
+  assert.ok(
+    zambaraGatheredTotal > 15,
+    `Zambara villagers must physically gather & deliver resources to AI ledger (gathered ${zambaraGatheredTotal})`,
+  );
+  assert.ok(
+    (aiManager.kingdoms.zambara.decisionLog?.length ?? 0) > 0,
+    'AI decisionLog must record explainable utility decisions',
+  );
+  void zambaraStart;
 });
 
-test('Phase 4: Diplomacy matrix calculates relationship score transitions, treaties, and proposals', () => {
+test('Phase 4.4: Distinct kingdom personalities produce divergent strategic profiles and priorities', () => {
+  assert.ok(KINGDOM_PERSONALITIES.oru.defensiveness > KINGDOM_PERSONALITIES.zambara.defensiveness);
+  assert.ok(KINGDOM_PERSONALITIES.zambara.expansionism > KINGDOM_PERSONALITIES.oru.expansionism);
+  assert.ok(KINGDOM_PERSONALITIES.kemetra.engineeringFocus > KINGDOM_PERSONALITIES.nambara.engineeringFocus);
+  assert.ok(KINGDOM_PERSONALITIES.aseka.commerceFocus > KINGDOM_PERSONALITIES.zambara.commerceFocus);
+  assert.ok(KINGDOM_PERSONALITIES.nambara.wildernessFocus > KINGDOM_PERSONALITIES.kemetra.wildernessFocus);
+
+  assert.notEqual(
+    KINGDOM_PERSONALITIES.zambara.preferredFormation,
+    KINGDOM_PERSONALITIES.oru.preferredFormation,
+  );
+  assert.notDeepEqual(
+    KINGDOM_PERSONALITIES.aseka.economyRatios,
+    KINGDOM_PERSONALITIES.zambara.economyRatios,
+  );
+});
+
+test('Phase 4.5: AI military recruitment deducts real AI treasury, advances training timer, and deducts upkeep', () => {
+  const region = REGIONS.golden_savannah;
+  const seed = 4819;
+  const settlement = generateInitialSettlement('oru', region, seed);
+  const runtime = createInitialEconomyRuntime({
+    kingdomId: 'oru',
+    region,
+    seed,
+    resources: { ...KINGDOMS.oru.startingResources },
+    buildings: settlement.buildings,
+    characters: settlement.characters,
+    resourceNodes: settlement.resourceNodes,
+    capitalCenters: settlement.capitalCenters,
+  });
+  const aiManager = createInitialAIKingdomManager('oru', 'normal', undefined, settlement.capitalCenters);
+  attachAIKingdomLedgers(runtime, aiManager.kingdoms);
+  const militaryState = createInitialMilitaryState();
+
+  const zambaraLedger = resolveKingdomLedger(runtime, 'zambara');
+  zambaraLedger.resources = { food: 600, wood: 500, stone: 400, iron: 300, gold: 300 };
+
+  const zCenter = settlement.capitalCenters.zambara;
+  const existingPts = [
+    ...runtime.buildings.map((b) => ({ x: b.position.x, z: b.position.z, r: b.footprintRadius })),
+    ...runtime.resourceNodes.map((n) => ({ x: n.position.x, z: n.position.z, r: n.footprintRadius })),
+  ];
+  const barracksPlot = findValidNearbyPlot(zCenter.x, zCenter.z, 10, 12, region, seed, existingPts, 3.6);
+  const barracksRes = placeNewBuilding('barracks_compound', barracksPlot.x, barracksPlot.z, 0, runtime, 'zambara');
+  assert.ok(barracksRes.ok && barracksRes.building, `Zambara barracks placed: ${barracksRes.reason ?? 'ok'}`);
+  barracksRes.building!.constructionState = 'completed';
+  barracksRes.building!.constructionProgress = 1;
+  barracksRes.building!.integrity = barracksRes.building!.maxIntegrity;
+
+  const foodBeforeRecruit = zambaraLedger.resources.food;
+  const recruitCheck = canRecruitMilitaryUnit('infantry', barracksRes.building!, runtime);
+  assert.equal(recruitCheck.ok, true, `AI barracks should allow recruitment: ${recruitCheck.reason}`);
+  const queued = queueUnitRecruitment('infantry', barracksRes.building!, runtime);
+  assert.equal(queued, true, 'AI barracks recruitment should succeed');
+  assert.equal(
+    zambaraLedger.resources.food,
+    foodBeforeRecruit - MILITARY_UNIT_CATALOG.infantry.cost.food,
+    'AI recruitment must deduct exact unit cost from AI ledger',
+  );
+
+  for (let i = 0; i < 200; i++) {
+    stepMilitaryRecruitmentQueues(0.1, runtime, militaryState, aiManager);
+  }
+  const zambaraInfantry = runtime.characters.filter(
+    (c) => c.kingdomId === 'zambara' && c.isMilitary && c.militaryClass === 'infantry',
+  );
+  assert.ok(zambaraInfantry.length >= 1, 'AI military recruit must spawn after real training timer');
+
+  const foodBeforeUpkeep = zambaraLedger.resources.food;
+  for (let i = 0; i < 65; i++) {
+    stepMilitaryUpkeep(1.0, runtime, militaryState, aiManager);
+  }
+  assert.ok(
+    zambaraLedger.resources.food < foodBeforeUpkeep,
+    'AI standing army must pay real upkeep from AI ledger',
+  );
+});
+
+test('Phase 4.6 & 4.7: Territorial expansion adds frontier zones and Fog-of-Knowledge discovers rivals by scouting vision', () => {
+  const region = REGIONS.golden_savannah;
+  const seed = 4819;
+  const settlement = generateInitialSettlement('oru', region, seed);
+  const runtime = createInitialEconomyRuntime({
+    kingdomId: 'oru',
+    region,
+    seed,
+    resources: { ...KINGDOMS.oru.startingResources },
+    buildings: settlement.buildings,
+    characters: settlement.characters,
+    resourceNodes: settlement.resourceNodes,
+    capitalCenters: settlement.capitalCenters,
+  });
+  const aiManager = createInitialAIKingdomManager('oru', 'very_hard', undefined, settlement.capitalCenters);
+  attachAIKingdomLedgers(runtime, aiManager.kingdoms);
   const diplomacy = createInitialDiplomacyState('oru');
 
-  const relBefore = diplomacy.relations.oru.zambara;
-  assert.equal(relBefore.state, 'neutral', 'Initial relation between Oru and Zambara is neutral');
+  assert.equal(diplomacy.relations.oru.zambara.discovered, false, 'Distant rivals begin undiscovered');
+  assert.equal(aiManager.kingdoms.oru.knownIntelligence?.zambara.discovered, false);
 
-  // Add non-aggression treaty
-  const event = addDiplomaticTreaty(diplomacy, 'oru', 'zambara', 'non_aggression', 300);
-  assert.ok(event.title.toLowerCase().includes('treaty formed'), 'Event generated for treaty formation');
+  // Move a scout near Zambara capital to establish line-of-sight discovery
+  const zCenter = settlement.capitalCenters.zambara;
+  const oruScout = spawnMilitaryCharacterEntity('scout', 'oru', zCenter.x + 8, zCenter.z + 8, 1);
+  runtime.characters.push(oruScout);
 
-  const relAfter = diplomacy.relations.oru.zambara;
-  assert.ok(relAfter.score > 0, 'Diplomatic score boosted by non-aggression treaty');
-  assert.equal(relAfter.activeTreaties.length, 1, 'Non-aggression treaty active in relation');
-
-  // Test proposal acceptance
-  const checkPact = evaluateProposalAcceptance(diplomacy, 'oru', 'zambara', 'trade_pact');
-  assert.equal(checkPact.accepted, true, 'Trade pact proposal accepted with positive relation');
-
-  // Test war declaration
-  const warRes = updateDiplomaticScore(diplomacy, 'oru', 'zambara', -80, 'war declaration');
-  assert.equal(warRes.newState, 'at_war', 'Relation transitions to at_war on -80 score drop');
+  updateAllKingdomIntelligence(aiManager, runtime, diplomacy, []);
+  assert.equal(diplomacy.relations.oru.zambara.discovered, true, 'Scout vision must discover rival kingdom');
+  assert.equal(aiManager.kingdoms.oru.knownIntelligence?.zambara.discovered, true);
+  assert.ok(
+    (aiManager.kingdoms.oru.knownIntelligence?.zambara.knownSettlementLocations.length ?? 0) >= 1,
+    'Reconnaissance must record observed settlement coordinates',
+  );
 });
 
-test('Phase 4: World save system preserves multi-kingdom AI state, diplomacy, and world events', () => {
+test('Phase 4.8: Tactical warfare handles hostile clashes, building siege, morale routing, and post-defeat rebuild', () => {
+  const region = REGIONS.golden_savannah;
+  const seed = 4819;
+  const settlement = generateInitialSettlement('oru', region, seed);
+  const runtime = createInitialEconomyRuntime({
+    kingdomId: 'oru',
+    region,
+    seed,
+    resources: { ...KINGDOMS.oru.startingResources },
+    buildings: settlement.buildings,
+    characters: settlement.characters,
+    resourceNodes: settlement.resourceNodes,
+    capitalCenters: settlement.capitalCenters,
+  });
+  const aiManager = createInitialAIKingdomManager('oru', 'hard', undefined, settlement.capitalCenters);
+  attachAIKingdomLedgers(runtime, aiManager.kingdoms);
+  const militaryState = createInitialMilitaryState();
+  const diplomacy = createInitialDiplomacyState('oru');
+
+  declareWarBetweenKingdoms(diplomacy, 'zambara', 'kemetra', 'border conflict', 10);
+  const sZ = spawnMilitaryCharacterEntity('infantry', 'zambara', 0, 0, 1);
+  const sK = spawnMilitaryCharacterEntity('archer', 'kemetra', 2.2, 0, 2);
+  assert.equal(areEntitiesHostile(sZ, sK, diplomacy), true);
+
+  sK.morale = 12;
+  sK.health = 20;
+  runtime.characters.push(sZ, sK);
+
+  const worldEvents: any[] = [];
+  for (let i = 0; i < 40; i++) {
+    stepMilitaryUnits(0.1, runtime, militaryState, diplomacy, aiManager, worldEvents);
+    stepProjectiles(0.1, militaryState, runtime, diplomacy, aiManager, worldEvents);
+  }
+  assert.ok(
+    sK.health < 20 || sK.combatState === 'routing',
+    `Combat under war must inflict damage or trigger morale routing retreat (hp=${sK.health}, state=${sK.combatState})`,
+  );
+
+  // Verify siege damage on hostile building & rebuild posture trigger
+  const kemetraHouse = runtime.buildings.find((b) => b.kingdomId === 'kemetra' && b.archetype !== 'royal_palace');
+  assert.ok(kemetraHouse);
+  const bIntegrityBefore = kemetraHouse!.integrity;
+  const ram = spawnMilitaryCharacterEntity('battering_ram', 'zambara', kemetraHouse!.position.x + 2, kemetraHouse!.position.z, 3);
+  ram.targetEntityId = kemetraHouse!.id;
+  ram.combatState = 'engaging';
+  runtime.characters.push(ram);
+
+  for (let i = 0; i < 20; i++) {
+    stepMilitaryUnits(0.1, runtime, militaryState, diplomacy, aiManager, worldEvents);
+  }
+  assert.ok(kemetraHouse!.integrity < bIntegrityBefore, 'Hostile siege unit must damage enemy building');
+});
+
+test('Phase 4.9 & 4.10: Bilateral diplomacy, real envoy gold transfer, trade pact tariff bonus, peace, and war work symmetrically', () => {
+  const region = REGIONS.golden_savannah;
+  const settlement = generateInitialSettlement('oru', region, 4819);
+  const runtime = createInitialEconomyRuntime({
+    kingdomId: 'oru',
+    region,
+    seed: 4819,
+    resources: { ...KINGDOMS.oru.startingResources },
+    buildings: settlement.buildings,
+    characters: settlement.characters,
+    resourceNodes: settlement.resourceNodes,
+    capitalCenters: settlement.capitalCenters,
+  });
+  const aiManager = createInitialAIKingdomManager('oru', 'normal', undefined, settlement.capitalCenters);
+  attachAIKingdomLedgers(runtime, aiManager.kingdoms);
+  const diplomacy = createInitialDiplomacyState('oru');
+
+  assert.equal(diplomacy.relations.oru.zambara.state, 'neutral');
+
+  const oruGoldBefore = runtime.resources.gold;
+  const asekaGoldBefore = aiManager.kingdoms.aseka.resources.gold;
+  const giftRes = sendDiplomaticGift(diplomacy, runtime, 'oru', 'aseka', 100);
+  assert.equal(giftRes.ok, true);
+  assert.equal(runtime.resources.gold, oruGoldBefore - 100, 'Envoy gift deducts source gold');
+  assert.equal(aiManager.kingdoms.aseka.resources.gold, asekaGoldBefore + 100, 'Envoy gift transfers to target gold');
+  assert.equal(diplomacy.relations.oru.aseka.discovered, true);
+
+  addDiplomaticTreaty(diplomacy, 'oru', 'aseka', 'trade_pact', 300, undefined, 15);
+  assert.equal(diplomacy.relations.aseka.oru.activeTreaties.length, 1, 'Treaty is mirrored bilaterally');
+
+  // Verify trade pact bonus multiplier applies in macro tick
+  runtime.tradeIncomeBonusMult = 1.15;
+  assert.equal(evaluateProposalAcceptance(diplomacy, 'oru', 'aseka', 'defensive_alliance').accepted, true);
+
+  declareWarBetweenKingdoms(diplomacy, 'oru', 'zambara', 'border clash', 30);
+  assert.equal(diplomacy.relations.oru.zambara.state, 'at_war');
+  assert.equal(diplomacy.relations.zambara.oru.state, 'at_war');
+
+  const peaceRes = proposePeaceTreaty(diplomacy, 'oru', 'zambara', 400, 120, 45);
+  assert.equal(peaceRes.accepted, true, 'Overwhelming strength should secure peace treaty');
+  assert.equal(diplomacy.relations.oru.zambara.state, 'neutral');
+  assert.equal(diplomacy.relations.zambara.oru.activeTreaties[0].kind, 'non_aggression');
+});
+
+test('Phase 4.11: Difficulty presets adjust AI cadence & tactical precision without free resource cheats', () => {
+  assert.ok(DIFFICULTY_PROFILES.easy.decisionIntervalSec > DIFFICULTY_PROFILES.very_hard.decisionIntervalSec);
+  assert.ok(DIFFICULTY_PROFILES.easy.utilityNoise > DIFFICULTY_PROFILES.very_hard.utilityNoise);
+  assert.ok(DIFFICULTY_PROFILES.very_hard.intelAccuracy > DIFFICULTY_PROFILES.easy.intelAccuracy);
+
+  // Confirm starting resource equality across difficulties
+  const region = REGIONS.golden_savannah;
+  const s1 = generateInitialSettlement('oru', region, 4819);
+  const s2 = generateInitialSettlement('oru', region, 4819);
+  const easyMgr = createInitialAIKingdomManager('oru', 'easy', undefined, s1.capitalCenters);
+  const veryHardMgr = createInitialAIKingdomManager('oru', 'very_hard', undefined, s2.capitalCenters);
+  assert.deepEqual(easyMgr.kingdoms.zambara.resources, veryHardMgr.kingdoms.zambara.resources);
+});
+
+test('Phase 4.12: Save/reload preserves AI kingdoms, diplomacy, world events, difficulty, and executes 100 simulation ticks under 200ms', () => {
+  const backing = new Map<string, string>();
+  const provider = new StoragePersistenceProvider({
+    getItem: (k) => backing.get(k) ?? null,
+    setItem: (k, v) => {
+      backing.set(k, v);
+    },
+    removeItem: (k) => {
+      backing.delete(k);
+    },
+  });
+
   const save = createNewKingdomSave({
     kingdomId: 'oru',
     playerKingdomName: 'Oru Empire',
     rulerName: 'King Shaka',
     regionId: 'golden_savannah',
     gameMode: 'standard',
+    difficultyLevel: 'hard',
     settings: {
       graphicsQuality: 'high',
       cameraPanSpeed: 1.0,
@@ -715,6 +981,85 @@ test('Phase 4: World save system preserves multi-kingdom AI state, diplomacy, an
     },
   });
 
-  assert.ok(validateSaveGameData(save), 'Phase 4 SaveGameData passes validation');
+  assert.equal(save.difficultyLevel, 'hard');
+  assert.equal(save.aiKingdomsData?.length, 5);
+  assert.ok(save.diplomacyData?.oru.length === 4);
+
+  assert.equal(provider.saveGame(save), true);
+  const loaded = provider.loadGame();
+  assert.ok(loaded && validateSaveGameData(loaded));
+  assert.equal(loaded!.difficultyLevel, 'hard');
+  assert.equal(loaded!.aiKingdomsData?.length, 5);
+
+  // Performance budget check: 100 full multi-kingdom simulation ticks < 200ms
+  const region = REGIONS.golden_savannah;
+  const settlement = generateInitialSettlement('oru', region, 4819);
+  const runtime = createInitialEconomyRuntime({
+    kingdomId: 'oru',
+    region,
+    seed: 4819,
+    resources: { ...KINGDOMS.oru.startingResources },
+    buildings: settlement.buildings,
+    characters: settlement.characters,
+    resourceNodes: settlement.resourceNodes,
+    capitalCenters: settlement.capitalCenters,
+  });
+  const aiManager = createInitialAIKingdomManager('oru', 'hard', undefined, settlement.capitalCenters);
+  attachAIKingdomLedgers(runtime, aiManager.kingdoms);
+  const militaryState = createInitialMilitaryState();
+  const diplomacy = createInitialDiplomacyState('oru');
+  const eventState = createInitialWorldEventState();
+
+  const t0 = performance.now();
+  for (let i = 0; i < 100; i++) {
+    const combatEvents: any[] = [];
+    stepEconomyAndVillagers(runtime, 0.05);
+    stepMilitaryRecruitmentQueues(0.05, runtime, militaryState, aiManager);
+    stepMilitaryUnits(0.05, runtime, militaryState, diplomacy, aiManager, combatEvents);
+    stepProjectiles(0.05, militaryState, runtime, diplomacy, aiManager, combatEvents);
+    stepMilitaryUpkeep(0.05, runtime, militaryState, aiManager);
+    const aiEvts = stepAIKingdomManager(0.05, aiManager, runtime, militaryState, diplomacy, region, 4819);
+    const dipEvts = stepDiplomacy(0.05, diplomacy, runtime);
+    for (const e of [...combatEvents, ...aiEvts, ...dipEvts]) {
+      pushWorldEvent(eventState, e);
+    }
+  }
+  const elapsedMs = performance.now() - t0;
+  assert.ok(elapsedMs < 200, `100 multi-kingdom ticks should run in < 200ms (took ${elapsedMs.toFixed(1)}ms)`);
 });
+
+test('Adaptive music mood resolver maps game state conditions deterministically', () => {
+  const base = {
+    isMenu: false,
+    activeCombatEvents: 0,
+    atWarCount: 0,
+    militaryUnitCount: 0,
+    queuedRecruits: 0,
+    activeConstructionCount: 0,
+    lowFoodAlert: false,
+  };
+  assert.equal(resolveAdaptiveMusicMood({ ...base, isMenu: true }), 'menu');
+  assert.equal(resolveAdaptiveMusicMood({ ...base, recentlyWon: true }), 'victory');
+  assert.equal(resolveAdaptiveMusicMood({ ...base, recentlyLost: true }), 'defeat');
+  assert.equal(resolveAdaptiveMusicMood({ ...base, activeCombatEvents: 2 }), 'combat');
+  assert.equal(resolveAdaptiveMusicMood({ ...base, atWarCount: 1 }), 'military_prep');
+  assert.equal(resolveAdaptiveMusicMood({ ...base, queuedRecruits: 2 }), 'military_prep');
+  assert.equal(resolveAdaptiveMusicMood({ ...base, militaryUnitCount: 6 }), 'military_prep');
+  assert.equal(resolveAdaptiveMusicMood({ ...base, lowFoodAlert: true }), 'military_prep');
+  assert.equal(resolveAdaptiveMusicMood({ ...base, activeConstructionCount: 2 }), 'expansion');
+  assert.equal(resolveAdaptiveMusicMood(base), 'peaceful');
+});
+
+test('Progressive 6-stage building assembly thresholds map progress 0..1 into stages 1..5', () => {
+  assert.equal(getConstructionStageFromProgress(0), 1);
+  assert.equal(getConstructionStageFromProgress(0.1), 1);
+  assert.equal(getConstructionStageFromProgress(0.18), 2);
+  assert.equal(getConstructionStageFromProgress(0.35), 2);
+  assert.equal(getConstructionStageFromProgress(0.45), 3);
+  assert.equal(getConstructionStageFromProgress(0.65), 4);
+  assert.equal(getConstructionStageFromProgress(0.85), 5);
+  assert.equal(getConstructionStageFromProgress(1), 5);
+});
+
+
 

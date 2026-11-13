@@ -20,9 +20,19 @@ export interface CharacterVisualRig {
   carriedBundleMesh: THREE.Mesh;
   carriedBundleMaterial: THREE.MeshStandardMaterial;
   toolMeshes: Record<string, THREE.Object3D>;
+  horseLegs: THREE.Group[];
   activePropType: string;
   collider: THREE.Mesh;
   dispose: () => void;
+}
+
+function hashEntityId(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 10000) / 10000;
 }
 
 const RESOURCE_BUNDLE_COLORS: Record<ResourceKey, { color: string; metalness: number; roughness: number }> = {
@@ -111,7 +121,13 @@ export function createProceduralCharacterRig(
     }),
   );
 
+  const idSeed = hashEntityId(entity.id);
+  const idSeed2 = hashEntityId(entity.id + '_b');
+  const heightScale = entity.isMilitary ? 1.0 + (idSeed - 0.5) * 0.08 : 0.96 + idSeed * 0.1;
+  const shoulderScale = entity.isMilitary ? 1.04 + idSeed2 * 0.08 : 0.94 + idSeed2 * 0.12;
+
   const bodyPivot = new THREE.Group();
+  bodyPivot.scale.set(shoulderScale, heightScale, 0.97 + idSeed2 * 0.08);
   root.add(bodyPivot);
 
   const skirtProfile = [
@@ -130,7 +146,7 @@ export function createProceduralCharacterRig(
   bodyPivot.add(spinePivot);
 
   const torsoMesh = new THREE.Mesh(
-    trackGeo(new THREE.CylinderGeometry(0.21, 0.17, 0.48, 10)),
+    trackGeo(new THREE.CylinderGeometry(0.215, 0.175, 0.48, 12)),
     tunicMat,
   );
   torsoMesh.position.y = 0.22;
@@ -138,7 +154,7 @@ export function createProceduralCharacterRig(
   spinePivot.add(torsoMesh);
 
   const beltMesh = new THREE.Mesh(
-    trackGeo(new THREE.CylinderGeometry(0.185, 0.19, 0.11, 10)),
+    trackGeo(new THREE.CylinderGeometry(0.188, 0.195, 0.12, 12)),
     sashMat,
   );
   beltMesh.position.y = -0.01;
@@ -146,12 +162,27 @@ export function createProceduralCharacterRig(
   spinePivot.add(beltMesh);
 
   const shoulderDrape = new THREE.Mesh(
-    trackGeo(new THREE.TorusGeometry(0.18, 0.045, 6, 14)),
+    trackGeo(new THREE.TorusGeometry(0.185, 0.048, 6, 14)),
     sashMat,
   );
-  shoulderDrape.position.set(0, 0.32, 0);
+  shoulderDrape.position.set(0, 0.33, 0);
   shoulderDrape.rotation.set(Math.PI / 2.3, 0.32, 0);
   spinePivot.add(shoulderDrape);
+
+  // Flowing cloak / mantle for royal guards, commanders, and seasoned traders
+  if (
+    entity.militaryClass === 'commander' ||
+    entity.militaryClass === 'royal_guard' ||
+    entity.role === 'Trader'
+  ) {
+    const cloak = new THREE.Mesh(
+      trackGeo(new THREE.CylinderGeometry(0.19, 0.32, 0.88, 10, 1, true, Math.PI * 0.65, Math.PI * 0.7)),
+      sashMat,
+    );
+    cloak.position.set(0, 0.02, -0.04);
+    cloak.castShadow = true;
+    spinePivot.add(cloak);
+  }
 
   const headPivot = new THREE.Group();
   headPivot.position.set(0, 0.50, 0);
@@ -206,6 +237,15 @@ export function createProceduralCharacterRig(
   mouth.position.set(0, 0.145, 0.142);
   headPivot.add(mouth);
 
+  // Sculpted brow ridge & lower jaw definition
+  const browRidge = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.16, 0.025, 0.04)), skinMat);
+  browRidge.position.set(0, 0.245, 0.13);
+  headPivot.add(browRidge);
+
+  const jaw = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.125, 0.065, 0.1)), skinMat);
+  jaw.position.set(0, 0.125, 0.06);
+  headPivot.add(jaw);
+
   // Distinct hairstyle / headwear based on role & military status
   if (entity.isMilitary) {
     if (entity.militaryClass === 'commander' || entity.militaryClass === 'royal_guard') {
@@ -217,7 +257,7 @@ export function createProceduralCharacterRig(
           metalness: 0.85,
         }),
       );
-      const helm = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.155, 0.165, 0.18, 10)), helmMat);
+      const helm = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.155, 0.165, 0.18, 12)), helmMat);
       helm.position.set(0, 0.27, -0.01);
       headPivot.add(helm);
 
@@ -237,13 +277,39 @@ export function createProceduralCharacterRig(
     }
   } else if (entity.role === 'Trader') {
     const headwrap = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.162, 0.145, 0.16, 12)),
+      trackGeo(new THREE.CylinderGeometry(0.165, 0.145, 0.17, 12)),
       sashMat,
     );
     headwrap.position.set(0, 0.27, -0.01);
     headwrap.rotation.x = -0.14;
     headwrap.castShadow = true;
     headPivot.add(headwrap);
+  } else if (entity.role === 'Farmer') {
+    // Wide woven straw sun hat for field cultivators
+    const strawMat = trackMat(
+      new THREE.MeshStandardMaterial({ color: new THREE.Color('#c89d54'), roughness: 0.88 }),
+    );
+    const brim = new THREE.Mesh(trackGeo(new THREE.ConeGeometry(0.28, 0.09, 14)), strawMat);
+    brim.position.set(0, 0.32, 0);
+    brim.castShadow = true;
+    headPivot.add(brim);
+  } else if (entity.role === 'Builder' || entity.role === 'Miner') {
+    // Protective artisan headcloth wrap
+    const wrap = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.154, 0.15, 0.09, 12)), sashMat);
+    wrap.position.set(0, 0.26, 0);
+    headPivot.add(wrap);
+  } else if (entity.role === 'Hunter') {
+    // Braided crown + feathered tracker plume
+    const hairCrown = new THREE.Mesh(
+      trackGeo(new THREE.SphereGeometry(0.152, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.6)),
+      hairMat,
+    );
+    hairCrown.position.y = 0.21;
+    headPivot.add(hairCrown);
+    const plume = new THREE.Mesh(trackGeo(new THREE.ConeGeometry(0.022, 0.16, 4)), sashMat);
+    plume.position.set(-0.11, 0.32, -0.04);
+    plume.rotation.z = 0.35;
+    headPivot.add(plume);
   } else {
     // Textured braided cornrows across cranium
     const hairCrown = new THREE.Mesh(
@@ -766,12 +832,23 @@ export function createProceduralCharacterRig(
   horseNeck.castShadow = true;
   horseGroup.add(horseNeck);
 
-  // Sculpted equine head
-  const horseHead = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.26, 0.32, 0.55)), horseMat);
-  horseHead.position.set(0, 1.82, 1.05);
-  horseHead.rotation.x = 0.25;
+  // Sculpted equine head & tapered muzzle
+  const horseHead = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.24, 0.28, 0.38)), horseMat);
+  horseHead.position.set(0, 1.84, 1.0);
+  horseHead.rotation.x = 0.28;
   horseHead.castShadow = true;
   horseGroup.add(horseHead);
+
+  const horseMuzzle = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.17, 0.18, 0.28)), horseMat);
+  horseMuzzle.position.set(0, 1.72, 1.24);
+  horseMuzzle.rotation.x = 0.35;
+  horseGroup.add(horseMuzzle);
+
+  // Flowing horse mane along arched neck
+  const horseMane = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.06, 0.72, 0.16)), hairMat);
+  horseMane.position.set(0, 1.56, 0.63);
+  horseMane.rotation.x = -0.55;
+  horseGroup.add(horseMane);
 
   // Pricked ears
   for (const eside of [-1, 1]) {
@@ -789,6 +866,7 @@ export function createProceduralCharacterRig(
 
   // 4 Articulated legs with muscular thighs, hocks and hooves
   const hoofMat = trackMat(new THREE.MeshStandardMaterial({ color: '#1a1410', roughness: 0.5 }));
+  const horseLegs: THREE.Group[] = [];
   for (const lx of [-0.28, 0.28]) {
     for (const lz of [-0.58, 0.58]) {
       const legGroup = new THREE.Group();
@@ -809,6 +887,7 @@ export function createProceduralCharacterRig(
       legGroup.add(hoof);
 
       horseGroup.add(legGroup);
+      horseLegs.push(legGroup);
     }
   }
 
@@ -861,6 +940,7 @@ export function createProceduralCharacterRig(
     carriedBundleMesh,
     carriedBundleMaterial,
     toolMeshes,
+    horseLegs,
     activePropType: entity.propType,
     collider,
     dispose: () => {
@@ -906,6 +986,16 @@ export function updateProceduralCharacterAnimation(
 
   const phase = entity.gaitPhase;
   const state = entity.animationState;
+
+  // Animate horse legs when mounted
+  if (entity.isMounted && rig.horseLegs.length === 4) {
+    const isMoving = state === 'walking' || state === 'running' || state === 'charging' || state === 'retreating';
+    const gallopAmp = state === 'charging' || state === 'running' ? 0.58 : isMoving ? 0.34 : 0.03;
+    rig.horseLegs[0].rotation.x = Math.sin(phase) * gallopAmp;
+    rig.horseLegs[1].rotation.x = Math.sin(phase + 0.55) * gallopAmp;
+    rig.horseLegs[2].rotation.x = -Math.sin(phase + 0.2) * gallopAmp;
+    rig.horseLegs[3].rotation.x = -Math.sin(phase + 0.75) * gallopAmp;
+  }
 
   if (state === 'idle') {
     const breath = Math.sin(phase * 1.35) * 0.018;

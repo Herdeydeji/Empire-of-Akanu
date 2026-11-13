@@ -9,6 +9,7 @@ import {
 } from '../../config/economy';
 import { createSpawnedCitizen } from '../../config/settlement';
 import {
+  AIKingdomRuntime,
   BuildingArchetype,
   BuildingEntity,
   CharacterEntity,
@@ -33,6 +34,20 @@ const BASE_RUN_SPEED = 4.25;
 const ARRIVAL_TOLERANCE = 0.42;
 const WORLD_PLACEMENT_LIMIT = 86;
 
+export interface KingdomEconomyLedger {
+  kingdomId: KingdomId;
+  isPlayer: boolean;
+  settlementCenter: { x: number; z: number };
+  resources: ResourceAmounts;
+  capacities: ResourceCapacities;
+  rates: ResourceRates;
+  population: PopulationState;
+  progressionStage: ProgressionStage;
+  economyStats: EconomyStatistics;
+  recentLedger: { time: number; type: 'prod' | 'cons'; resource: ResourceKey; amount: number }[];
+  tradeIncomeBonusMult: number;
+}
+
 export interface EconomyWorldRuntime {
   kingdomId: KingdomId;
   region: RegionConfig;
@@ -56,6 +71,144 @@ export interface EconomyWorldRuntime {
   dirtyBuildingIds: Set<string>;
   dirtyNodeIds: Set<string>;
   newlySpawnedCharacters: CharacterEntity[];
+  newlySpawnedBuildings: BuildingEntity[];
+  capitalCenters?: Record<KingdomId, { x: number; z: number }>;
+  tradeIncomeBonusMult?: number;
+  kingdomLedgers?: Map<KingdomId, KingdomEconomyLedger>;
+}
+
+export function resolveKingdomLedger(
+  runtime: EconomyWorldRuntime,
+  kingdomId?: KingdomId,
+): KingdomEconomyLedger {
+  const kId = kingdomId ?? runtime.kingdomId;
+  if (!runtime.kingdomLedgers) {
+    runtime.kingdomLedgers = new Map<KingdomId, KingdomEconomyLedger>();
+  }
+  const found = runtime.kingdomLedgers.get(kId);
+  if (found) return found;
+
+  if (kId === runtime.kingdomId) {
+    const playerLedger: KingdomEconomyLedger = {
+      kingdomId: kId,
+      isPlayer: true,
+      settlementCenter: runtime.capitalCenters?.[kId] ?? { x: 0, z: 0 },
+      resources: runtime.resources,
+      capacities: runtime.capacities,
+      rates: runtime.rates,
+      population: runtime.population,
+      progressionStage: runtime.progressionStage,
+      economyStats: runtime.economyStats,
+      recentLedger: runtime.recentLedger,
+      tradeIncomeBonusMult: runtime.tradeIncomeBonusMult ?? 1.0,
+    };
+    runtime.kingdomLedgers.set(kId, playerLedger);
+    return playerLedger;
+  }
+
+  const isolatedLedger: KingdomEconomyLedger = {
+    kingdomId: kId,
+    isPlayer: false,
+    settlementCenter: runtime.capitalCenters?.[kId] ?? { x: 0, z: 0 },
+    resources: { food: 400, wood: 400, stone: 350, iron: 220, gold: 250 },
+    capacities: { food: 1200, wood: 1200, stone: 1200, iron: 900, gold: 1200 },
+    rates: {
+      productionPerMinute: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
+      consumptionPerMinute: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
+      netPerMinute: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
+    },
+    population: {
+      current: 5,
+      capacity: 12,
+      availableWorkforce: 5,
+      employedCount: 5,
+      unemployedCount: 0,
+      happiness: 80,
+      foodSatisfaction: 100,
+      growthProgress: 0,
+    },
+    progressionStage: 'Settlement',
+    economyStats: {
+      totalGathered: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
+      totalConsumedFood: 0,
+      buildingsConstructed: 0,
+      villagersBorn: 0,
+    },
+    recentLedger: [],
+    tradeIncomeBonusMult: 1.0,
+  };
+  runtime.kingdomLedgers.set(kId, isolatedLedger);
+  return isolatedLedger;
+}
+
+export function attachAIKingdomLedgers(
+  runtime: EconomyWorldRuntime,
+  aiKingdoms: Record<KingdomId, AIKingdomRuntime>,
+): void {
+  const map = new Map<KingdomId, KingdomEconomyLedger>();
+
+  for (const kId of Object.keys(aiKingdoms) as KingdomId[]) {
+    const ai = aiKingdoms[kId];
+    const isPlayer = kId === runtime.kingdomId || ai.isPlayer;
+
+    if (isPlayer) {
+      map.set(kId, {
+        kingdomId: kId,
+        isPlayer: true,
+        settlementCenter: ai.settlementCenter,
+        resources: runtime.resources,
+        capacities: runtime.capacities,
+        rates: runtime.rates,
+        population: runtime.population,
+        progressionStage: runtime.progressionStage,
+        economyStats: runtime.economyStats,
+        recentLedger: runtime.recentLedger,
+        tradeIncomeBonusMult: 1.0,
+      });
+      // Mirror live player runtime references back onto AIKingdomRuntime entry
+      ai.resources = runtime.resources;
+      ai.capacities = runtime.capacities;
+      ai.rates = runtime.rates;
+      ai.population = runtime.population;
+      ai.economyStats = runtime.economyStats;
+      ai.progressionStage = runtime.progressionStage;
+    } else {
+      if (!ai.rates) {
+        ai.rates = {
+          productionPerMinute: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
+          consumptionPerMinute: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
+          netPerMinute: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
+        };
+      }
+      if (!ai.economyStats) {
+        ai.economyStats = {
+          totalGathered: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
+          totalConsumedFood: 0,
+          buildingsConstructed: 0,
+          villagersBorn: 0,
+        };
+      }
+      map.set(kId, {
+        kingdomId: kId,
+        isPlayer: false,
+        settlementCenter: ai.settlementCenter,
+        resources: ai.resources,
+        capacities: ai.capacities,
+        rates: ai.rates,
+        population: ai.population,
+        progressionStage: ai.progressionStage,
+        economyStats: ai.economyStats,
+        recentLedger: [],
+        tradeIncomeBonusMult: 1.0,
+      });
+    }
+  }
+
+  runtime.kingdomLedgers = map;
+  recalculateCapacitiesAndPopulation(runtime);
+  for (const ledger of map.values()) {
+    clampResourcesToCapacities(runtime, ledger.kingdomId);
+  }
 }
 
 export function createInitialEconomyRuntime(params: {
@@ -70,12 +223,17 @@ export function createInitialEconomyRuntime(params: {
   existingStats?: EconomyStatistics;
   existingPopulation?: Partial<PopulationState>;
   elapsedSeconds?: number;
+  capitalCenters?: Record<KingdomId, { x: number; z: number }>;
 }): EconomyWorldRuntime {
+  const playerInitialPop = params.characters.filter(
+    (c) => c.kingdomId === params.kingdomId,
+  ).length;
   const runtime: EconomyWorldRuntime = {
     kingdomId: params.kingdomId,
     region: params.region,
     seed: params.seed,
     capacityMultiplier: params.capacityMultiplier ?? 1.0,
+    capitalCenters: params.capitalCenters,
     resources: { ...params.resources },
     capacities: { food: 1200, wood: 1200, stone: 1200, iron: 1000, gold: 1000 },
     rates: {
@@ -84,9 +242,9 @@ export function createInitialEconomyRuntime(params: {
       netPerMinute: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
     },
     population: {
-      current: params.characters.length,
+      current: playerInitialPop,
       capacity: 22,
-      availableWorkforce: params.characters.length,
+      availableWorkforce: playerInitialPop,
       employedCount: 0,
       unemployedCount: 0,
       happiness: params.existingPopulation?.happiness ?? 82,
@@ -116,6 +274,7 @@ export function createInitialEconomyRuntime(params: {
     dirtyBuildingIds: new Set(),
     dirtyNodeIds: new Set(),
     newlySpawnedCharacters: [],
+    newlySpawnedBuildings: [],
   };
 
   recalculateCapacitiesAndPopulation(runtime);
@@ -149,9 +308,13 @@ export function pushEconomyNotification(
   });
 }
 
-export function recalculateCapacitiesAndPopulation(runtime: EconomyWorldRuntime): void {
-  const bonus = KINGDOM_ECONOMIC_BONUSES[runtime.kingdomId];
-  const capMult = runtime.capacityMultiplier || 1.0;
+function recalculateLedgerForKingdom(
+  runtime: EconomyWorldRuntime,
+  ledger: KingdomEconomyLedger,
+): void {
+  const kId = ledger.kingdomId;
+  const bonus = KINGDOM_ECONOMIC_BONUSES[kId];
+  const capMult = ledger.isPlayer ? (runtime.capacityMultiplier || 1.0) : 1.0;
   const caps: ResourceCapacities = {
     food: Math.round(ECONOMY_RULES.minimumBaseCapacity.food * capMult),
     wood: Math.round(ECONOMY_RULES.minimumBaseCapacity.wood * capMult),
@@ -165,7 +328,7 @@ export function recalculateCapacitiesAndPopulation(runtime: EconomyWorldRuntime)
 
   for (let i = 0; i < runtime.buildings.length; i++) {
     const b = runtime.buildings[i];
-    if (b.kingdomId !== runtime.kingdomId) continue;
+    if (b.kingdomId !== kId) continue;
     if (b.constructionState !== 'completed') continue;
     completedCount++;
     if (b.archetype === 'royal_palace') hasPalace = true;
@@ -181,38 +344,75 @@ export function recalculateCapacitiesAndPopulation(runtime: EconomyWorldRuntime)
     }
   }
 
-  runtime.capacities = caps;
+  ledger.capacities.food = caps.food;
+  ledger.capacities.wood = caps.wood;
+  ledger.capacities.stone = caps.stone;
+  ledger.capacities.iron = caps.iron;
+  ledger.capacities.gold = caps.gold;
 
   let employed = 0;
   let unemployed = 0;
-  let playerCharCount = 0;
+  let popCount = 0;
+  let civCount = 0;
   for (let i = 0; i < runtime.characters.length; i++) {
     const c = runtime.characters[i];
-    if (c.kingdomId === runtime.kingdomId) {
-      playerCharCount++;
-      if (c.role === 'Unemployed') unemployed++;
-      else employed++;
+    if (c.kingdomId === kId && c.health > 0) {
+      popCount++;
+      if (!c.isMilitary) {
+        civCount++;
+        if (c.role === 'Unemployed') unemployed++;
+        else employed++;
+      }
     }
   }
 
-  runtime.population.current = playerCharCount;
-  runtime.population.capacity = Math.max(4, housingCap);
-  runtime.population.availableWorkforce = playerCharCount;
-  runtime.population.employedCount = employed;
-  runtime.population.unemployedCount = unemployed;
+  ledger.population.current = popCount;
+  ledger.population.capacity = Math.max(4, housingCap);
+  ledger.population.availableWorkforce = civCount;
+  ledger.population.employedCount = employed;
+  ledger.population.unemployedCount = unemployed;
 
-  runtime.progressionStage = evaluateProgressionStage(
-    runtime.population.current,
+  ledger.progressionStage = evaluateProgressionStage(
+    ledger.population.current,
     completedCount,
     hasPalace,
   );
+
+  if (ledger.isPlayer) {
+    runtime.capacities = ledger.capacities;
+    runtime.progressionStage = ledger.progressionStage;
+  }
 }
 
-export function clampResourcesToCapacities(runtime: EconomyWorldRuntime): void {
+export function recalculateCapacitiesAndPopulation(
+  runtime: EconomyWorldRuntime,
+  targetKingdomId?: KingdomId,
+): void {
+  if (runtime.kingdomLedgers && runtime.kingdomLedgers.size > 0) {
+    if (targetKingdomId) {
+      const ledger = runtime.kingdomLedgers.get(targetKingdomId);
+      if (ledger) recalculateLedgerForKingdom(runtime, ledger);
+      return;
+    }
+    for (const ledger of runtime.kingdomLedgers.values()) {
+      recalculateLedgerForKingdom(runtime, ledger);
+    }
+    return;
+  }
+
+  const playerLedger = resolveKingdomLedger(runtime, runtime.kingdomId);
+  recalculateLedgerForKingdom(runtime, playerLedger);
+}
+
+export function clampResourcesToCapacities(
+  runtime: EconomyWorldRuntime,
+  kingdomId?: KingdomId,
+): void {
+  const ledger = resolveKingdomLedger(runtime, kingdomId);
   for (const key of RESOURCE_KEYS) {
-    runtime.resources[key] = Math.max(
+    ledger.resources[key] = Math.max(
       0,
-      Math.min(runtime.capacities[key], runtime.resources[key]),
+      Math.min(ledger.capacities[key], ledger.resources[key]),
     );
   }
 }
@@ -227,11 +427,13 @@ export function canAffordCost(resources: ResourceAmounts, cost: ResourceAmounts)
 export function spendResourcesValidated(
   runtime: EconomyWorldRuntime,
   cost: ResourceAmounts,
+  kingdomId?: KingdomId,
 ): boolean {
-  if (!canAffordCost(runtime.resources, cost)) return false;
+  const ledger = resolveKingdomLedger(runtime, kingdomId);
+  if (!canAffordCost(ledger.resources, cost)) return false;
   for (const key of RESOURCE_KEYS) {
     if (cost[key] > 0) {
-      runtime.resources[key] = Math.max(0, runtime.resources[key] - cost[key]);
+      ledger.resources[key] = Math.max(0, ledger.resources[key] - cost[key]);
     }
   }
   return true;
@@ -241,21 +443,23 @@ export function depositResourceValidated(
   runtime: EconomyWorldRuntime,
   resource: ResourceKey,
   amount: number,
+  kingdomId?: KingdomId,
 ): number {
   if (amount <= 0) return 0;
-  const space = Math.max(0, runtime.capacities[resource] - runtime.resources[resource]);
+  const ledger = resolveKingdomLedger(runtime, kingdomId);
+  const space = Math.max(0, ledger.capacities[resource] - ledger.resources[resource]);
   const accepted = Math.min(amount, space);
   if (accepted > 0) {
-    runtime.resources[resource] += accepted;
-    runtime.economyStats.totalGathered[resource] += accepted;
-    runtime.recentLedger.push({
+    ledger.resources[resource] += accepted;
+    ledger.economyStats.totalGathered[resource] += accepted;
+    ledger.recentLedger.push({
       time: runtime.elapsedSeconds,
       type: 'prod',
       resource,
       amount: accepted,
     });
   }
-  if (accepted < amount - 0.01) {
+  if (ledger.isPlayer && accepted < amount - 0.01) {
     const label = resource.charAt(0).toUpperCase() + resource.slice(1);
     const storageHint =
       resource === 'food'
@@ -267,7 +471,7 @@ export function depositResourceValidated(
       runtime,
       `storage_full_${resource}`,
       'warning',
-      `${label} storage capacity reached (${Math.round(runtime.capacities[resource])}). Build a ${storageHint}.`,
+      `${label} storage capacity reached (${Math.round(ledger.capacities[resource])}). Build a ${storageHint}.`,
       18,
     );
   }
@@ -285,9 +489,12 @@ export function validateBuildingPlacement(
   x: number,
   z: number,
   runtime: EconomyWorldRuntime,
+  ownerKingdomId?: KingdomId,
 ): PlacementValidationResult {
+  const kId = ownerKingdomId ?? runtime.kingdomId;
+  const ledger = resolveKingdomLedger(runtime, kId);
   const bp = BUILDING_CATALOG[archetype];
-  const adjustedCost = getAdjustedBuildingCost(archetype, runtime.kingdomId);
+  const adjustedCost = getAdjustedBuildingCost(archetype, kId);
 
   if (!bp.buildable) {
     return { valid: false, reason: 'Structure cannot be placed manually.', adjustedCost };
@@ -341,7 +548,7 @@ export function validateBuildingPlacement(
     }
   }
 
-  if (!canAffordCost(runtime.resources, adjustedCost)) {
+  if (!canAffordCost(ledger.resources, adjustedCost)) {
     return { valid: false, reason: 'Insufficient kingdom resources for construction.', adjustedCost };
   }
 
@@ -354,34 +561,40 @@ export function placeNewBuilding(
   z: number,
   rotationY: number,
   runtime: EconomyWorldRuntime,
+  ownerKingdomId?: KingdomId,
 ): { ok: boolean; building?: BuildingEntity; reason?: string } {
-  const check = validateBuildingPlacement(archetype, x, z, runtime);
+  const kId = ownerKingdomId ?? runtime.kingdomId;
+  const ledger = resolveKingdomLedger(runtime, kId);
+  const check = validateBuildingPlacement(archetype, x, z, runtime, kId);
   if (!check.valid) {
-    pushEconomyNotification(
-      runtime,
-      `invalid_place_${archetype}`,
-      'alert',
-      check.reason ?? 'Invalid placement.',
-      3,
-    );
+    if (ledger.isPlayer) {
+      pushEconomyNotification(
+        runtime,
+        `invalid_place_${archetype}`,
+        'alert',
+        check.reason ?? 'Invalid placement.',
+        3,
+      );
+    }
     return { ok: false, reason: check.reason };
   }
 
-  if (!spendResourcesValidated(runtime, check.adjustedCost)) {
+  if (!spendResourcesValidated(runtime, check.adjustedCost, kId)) {
     return { ok: false, reason: 'Insufficient resources.' };
   }
 
   const bp = BUILDING_CATALOG[archetype];
   const y = sampleTerrainHeight(x, z, runtime.region, runtime.seed);
-  const countSameType = runtime.buildings.filter((b) => b.archetype === archetype).length + 1;
+  const countSameType =
+    runtime.buildings.filter((b) => b.kingdomId === kId && b.archetype === archetype).length + 1;
 
   const newBuilding: BuildingEntity = {
-    id: `bld_${archetype}_${Date.now()}_${countSameType}`,
+    id: `bld_${kId}_${archetype}_${Date.now()}_${countSameType}_${Math.floor(Math.random() * 1000)}`,
     category: 'building',
     name: countSameType > 1 ? `${bp.name} #${countSameType}` : bp.name,
     archetype,
     buildingClass: bp.buildingClass,
-    kingdomId: runtime.kingdomId,
+    kingdomId: kId,
     position: { x, y, z },
     rotationY,
     footprintRadius: bp.footprintRadius,
@@ -402,26 +615,32 @@ export function placeNewBuilding(
   };
 
   runtime.buildings.push(newBuilding);
+  if (!runtime.newlySpawnedBuildings) {
+    runtime.newlySpawnedBuildings = [];
+  }
+  runtime.newlySpawnedBuildings.push(newBuilding);
   runtime.dirtyBuildingIds.add(newBuilding.id);
 
-  // Automatically alert/assign idle Builders (or idle Unemployed if zero builders exist? Keep explicit: assign idle Builders automatically!)
+  // Automatically alert/assign idle Builders belonging strictly to the owning kingdom
   let autoAssigned = 0;
   for (const v of runtime.characters) {
-    if (v.role === 'Builder' && !v.assignedBuildingId) {
+    if (v.kingdomId === kId && !v.isMilitary && v.health > 0 && v.role === 'Builder' && !v.assignedBuildingId) {
       assignVillagerToConstruction(v, newBuilding, runtime);
       autoAssigned++;
     }
   }
 
-  pushEconomyNotification(
-    runtime,
-    `placed_${newBuilding.id}`,
-    'info',
-    autoAssigned > 0
-      ? `Placed ${newBuilding.name}. ${autoAssigned} builder(s) dispatched.`
-      : `Placed ${newBuilding.name}. Assign a Builder to begin construction.`,
-    1,
-  );
+  if (ledger.isPlayer) {
+    pushEconomyNotification(
+      runtime,
+      `placed_${newBuilding.id}`,
+      'info',
+      autoAssigned > 0
+        ? `Placed ${newBuilding.name}. ${autoAssigned} builder(s) dispatched.`
+        : `Placed ${newBuilding.name}. Assign a Builder to begin construction.`,
+      1,
+    );
+  }
 
   return { ok: true, building: newBuilding };
 }
@@ -435,11 +654,12 @@ export function cancelPlannedOrActiveConstruction(
   const bld = runtime.buildings[idx];
   if (bld.constructionState === 'completed') return false;
 
-  // Refund 75% of spent materials up to storage capacity
+  const ledger = resolveKingdomLedger(runtime, bld.kingdomId);
+  // Refund 75% of spent materials up to storage capacity of owning kingdom
   for (const key of RESOURCE_KEYS) {
     const refund = Math.floor(bld.constructionCost[key] * ECONOMY_RULES.constructionCancelRefundRatio);
     if (refund > 0) {
-      runtime.resources[key] = Math.min(runtime.capacities[key], runtime.resources[key] + refund);
+      ledger.resources[key] = Math.min(ledger.capacities[key], ledger.resources[key] + refund);
     }
   }
 
@@ -455,13 +675,15 @@ export function cancelPlannedOrActiveConstruction(
   bld.constructionState = 'destroyed';
   runtime.buildings.splice(idx, 1);
   runtime.dirtyBuildingIds.add(buildingId);
-  pushEconomyNotification(
-    runtime,
-    `cancel_${buildingId}`,
-    'info',
-    `Cancelled ${bld.name} (75% materials refunded).`,
-    1,
-  );
+  if (ledger.isPlayer) {
+    pushEconomyNotification(
+      runtime,
+      `cancel_${buildingId}`,
+      'info',
+      `Cancelled ${bld.name} (75% materials refunded).`,
+      1,
+    );
+  }
   return true;
 }
 
@@ -495,7 +717,8 @@ export function assignVillagerOccupation(
   detachVillagerReservations(villager, runtime);
 
   const occ = OCCUPATION_CONFIGS[newRole];
-  const bonus = KINGDOM_ECONOMIC_BONUSES[runtime.kingdomId];
+  const bonus = KINGDOM_ECONOMIC_BONUSES[villager.kingdomId];
+  const ledger = resolveKingdomLedger(runtime, villager.kingdomId);
   villager.role = newRole;
   villager.propType = occ.defaultProp;
   villager.carryCapacity = occ.carryCapacity;
@@ -526,9 +749,9 @@ export function assignVillagerOccupation(
       ? 'Unemployed · Standing by'
       : `Assigned as ${newRole}`;
 
-  recalculateCapacitiesAndPopulation(runtime);
+  recalculateCapacitiesAndPopulation(runtime, villager.kingdomId);
 
-  if (!silent) {
+  if (!silent && ledger.isPlayer) {
     pushEconomyNotification(
       runtime,
       `assign_${villager.id}_${newRole}`,
@@ -583,7 +806,7 @@ export function cancelVillagerTask(
   villager.animationState = 'idle';
   villager.speed = 0;
   villager.activityLabel = 'Task cancelled · Unemployed';
-  recalculateCapacitiesAndPopulation(runtime);
+  recalculateCapacitiesAndPopulation(runtime, villager.kingdomId);
 }
 
 export function commandVillagersToEntity(
@@ -705,6 +928,7 @@ function findNearestStorageBuilding(
 
   for (let i = 0; i < runtime.buildings.length; i++) {
     const b = runtime.buildings[i];
+    if (b.kingdomId !== villager.kingdomId) continue;
     if (b.constructionState !== 'completed') continue;
     if (!b.acceptsStorage.includes(resource)) continue;
     // Prefer dedicated storage buildings slightly over the universal compound when nearby
@@ -740,6 +964,7 @@ function findBestNodeForVillager(
     return null;
   }
 
+  const ledger = resolveKingdomLedger(runtime, villager.kingdomId);
   let bestNode: EnvironmentNodeEntity | null = null;
   let bestScore = Infinity;
 
@@ -747,9 +972,10 @@ function findBestNodeForVillager(
     const n = runtime.resourceNodes[i];
     if (!allowedKinds.includes(n.nodeKind)) continue;
     if (n.depleted || n.remainingYield <= 0.05) continue;
+    if (n.ownerKingdomId && n.ownerKingdomId !== villager.kingdomId) continue;
 
     // Skip if storage for this node's resource is completely full (unless miner can switch mineral!)
-    if (runtime.resources[n.resourceType] >= runtime.capacities[n.resourceType] - 0.01) {
+    if (ledger.resources[n.resourceType] >= ledger.capacities[n.resourceType] - 0.01) {
       continue;
     }
 
@@ -791,6 +1017,7 @@ function findBestBuildingWorkplace(
 
   for (let i = 0; i < runtime.buildings.length; i++) {
     const b = runtime.buildings[i];
+    if (b.kingdomId !== villager.kingdomId) continue;
     if (!archetypes.includes(b.archetype)) continue;
     if (requireCompleted && b.constructionState !== 'completed') continue;
     if (!requireCompleted && b.constructionState === 'completed') continue;
@@ -838,7 +1065,7 @@ function moveVillagerToward(
     return true;
   }
 
-  const moveMult = KINGDOM_ECONOMIC_BONUSES[runtime.kingdomId].villagerMoveSpeedMult;
+  const moveMult = KINGDOM_ECONOMIC_BONUSES[v.kingdomId].villagerMoveSpeedMult;
   const desiredSpeed = (run ? BASE_RUN_SPEED : BASE_WALK_SPEED) * moveMult;
 
   let dirX = dx / dist;
@@ -914,10 +1141,13 @@ function moveVillagerToward(
       nextX = v.position.x;
       nextY = altY2;
     } else {
-      // Pull slightly upslope toward settlement center (0, 0)
-      const toCenterLen = Math.hypot(-v.position.x, -v.position.z) || 1;
-      nextX = v.position.x + (-v.position.x / toCenterLen) * actualStep;
-      nextZ = v.position.z + (-v.position.z / toCenterLen) * actualStep;
+      // Pull slightly upslope toward owning kingdom's settlement center
+      const center = resolveKingdomLedger(runtime, v.kingdomId).settlementCenter;
+      const toCenterX = center.x - v.position.x;
+      const toCenterZ = center.z - v.position.z;
+      const toCenterLen = Math.hypot(toCenterX, toCenterZ) || 1;
+      nextX = v.position.x + (toCenterX / toCenterLen) * actualStep;
+      nextZ = v.position.z + (toCenterZ / toCenterLen) * actualStep;
       nextY = sampleTerrainHeight(nextX, nextZ, runtime.region, runtime.seed);
     }
   }
@@ -955,7 +1185,11 @@ function moveVillagerToward(
 }
 
 function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorldRuntime): void {
-  // 1. Direct player move command takes top priority until arrival
+  if (v.isMilitary || v.health <= 0) return;
+
+  const ledger = resolveKingdomLedger(runtime, v.kingdomId);
+
+  // 1. Direct player/kingdom move command takes top priority until arrival
   if (v.taskType === 'move_to' && v.moveTarget) {
     const arrived = moveVillagerToward(
       v,
@@ -1002,7 +1236,10 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
 
     let storage = v.deliveryBuildingId
       ? runtime.buildings.find(
-          (b) => b.id === v.deliveryBuildingId && b.constructionState === 'completed',
+          (b) =>
+            b.id === v.deliveryBuildingId &&
+            b.kingdomId === v.kingdomId &&
+            b.constructionState === 'completed',
         ) ?? null
       : null;
 
@@ -1020,13 +1257,13 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
     }
 
     // Check if storage is completely full before or upon arrival
-    if (runtime.resources[v.carriedResource] >= runtime.capacities[v.carriedResource] - 0.01) {
+    if (ledger.resources[v.carriedResource] >= ledger.capacities[v.carriedResource] - 0.01) {
       v.animationState = 'idle';
       v.speed = 0;
       v.gaitPhase += dt * 1.5;
       const rName = v.carriedResource.charAt(0).toUpperCase() + v.carriedResource.slice(1);
       v.activityLabel = `Paused — ${rName} storage full`;
-      depositResourceValidated(runtime, v.carriedResource, v.carriedAmount); // triggers throttled alert
+      depositResourceValidated(runtime, v.carriedResource, v.carriedAmount, v.kingdomId);
       return;
     }
 
@@ -1043,7 +1280,12 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
     );
 
     if (arrived) {
-      const deposited = depositResourceValidated(runtime, v.carriedResource, v.carriedAmount);
+      const deposited = depositResourceValidated(
+        runtime,
+        v.carriedResource,
+        v.carriedAmount,
+        v.kingdomId,
+      );
       v.carriedAmount = Math.max(0, v.carriedAmount - deposited);
       if (v.carriedAmount <= 0.05) {
         v.carriedAmount = 0;
@@ -1143,26 +1385,31 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
         site.assignedWorkerIds = [];
         site.statusText = `${BUILDING_CATALOG[site.archetype].economicRoleSummary}`;
         runtime.dirtyBuildingIds.add(site.id);
-        runtime.economyStats.buildingsConstructed += 1;
+        ledger.economyStats.buildingsConstructed += 1;
         v.assignedBuildingId = null;
         v.taskType = 'idle';
         v.waitTimer = 0.6;
         v.animationState = 'idle';
-        recalculateCapacitiesAndPopulation(runtime);
-        pushEconomyNotification(
-          runtime,
-          `completed_${site.id}`,
-          'success',
-          `Construction completed: ${site.name}!`,
-          1,
-        );
+        recalculateCapacitiesAndPopulation(runtime, site.kingdomId);
+        if (ledger.isPlayer) {
+          pushEconomyNotification(
+            runtime,
+            `completed_${site.id}`,
+            'success',
+            `Construction completed: ${site.name}!`,
+            1,
+          );
+        }
       }
       return;
     }
 
-    // Check if any completed building needs repair
+    // Check if any completed building owned by this kingdom needs repair
     const damaged = runtime.buildings.find(
-      (b) => b.constructionState === 'completed' && b.integrity < b.maxIntegrity,
+      (b) =>
+        b.kingdomId === v.kingdomId &&
+        b.constructionState === 'completed' &&
+        b.integrity < b.maxIntegrity,
     );
     if (damaged) {
       const arrived = moveVillagerToward(
@@ -1196,18 +1443,20 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
 
   // 5. Farmer logic: cultivate completed Farm buildings -> haul food to Granary/Compound
   if (v.role === 'Farmer') {
-    if (runtime.resources.food >= runtime.capacities.food - 0.01) {
+    if (ledger.resources.food >= ledger.capacities.food - 0.01) {
       v.animationState = 'idle';
       v.speed = 0;
       v.gaitPhase += dt * 1.5;
       v.activityLabel = 'Paused — Food storage full';
-      pushEconomyNotification(
-        runtime,
-        'storage_full_food',
-        'warning',
-        'Food storage full! Construct a Granary to expand capacity.',
-        18,
-      );
+      if (ledger.isPlayer) {
+        pushEconomyNotification(
+          runtime,
+          'storage_full_food',
+          'warning',
+          'Food storage full! Construct a Granary to expand capacity.',
+          18,
+        );
+      }
       return;
     }
 
@@ -1268,7 +1517,7 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
 
   // 6. Trader logic: exchange shuttle between Marketplace and Royal Compound / Palace
   if (v.role === 'Trader') {
-    if (runtime.resources.gold >= runtime.capacities.gold - 0.01) {
+    if (ledger.resources.gold >= ledger.capacities.gold - 0.01) {
       v.animationState = 'idle';
       v.speed = 0;
       v.gaitPhase += dt * 1.5;
@@ -1280,6 +1529,7 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
       ? runtime.buildings.find(
           (b) =>
             b.id === v.assignedBuildingId &&
+            b.kingdomId === v.kingdomId &&
             b.archetype === 'market_courtyard' &&
             b.constructionState === 'completed',
         ) ?? null
@@ -1323,16 +1573,20 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
     v.animationState = 'crafting';
     v.speed = 0;
     v.gaitPhase += dt * 3.8;
-    const rate = OCCUPATION_CONFIGS.Trader.baseGatherRatePerSec * v.productivity;
+    const rate =
+      OCCUPATION_CONFIGS.Trader.baseGatherRatePerSec *
+      v.productivity *
+      (ledger.tradeIncomeBonusMult || 1.0);
     v.carriedResource = 'gold';
     v.carriedAmount = Math.min(v.carryCapacity, v.carriedAmount + rate * dt);
     v.activityLabel = `Bartering goods at ${market.name} (${Math.floor(v.carriedAmount)}/${v.carryCapacity} Gold)`;
 
     if (v.carriedAmount >= v.carryCapacity) {
-      // Deliver tariff gold to Chieftain's Compound / Palace / Treasury
+      // Deliver tariff gold to owning kingdom's Compound / Palace / Treasury
       const royalDrop =
         runtime.buildings.find(
           (b) =>
+            b.kingdomId === v.kingdomId &&
             b.constructionState === 'completed' &&
             (b.archetype === 'royal_treasury' ||
               b.archetype === 'royal_palace' ||
@@ -1347,8 +1601,8 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
   // 7. Craftsperson logic: forge work at Blacksmith / Weapon Workshop (or Compound hearth)
   if (v.role === 'Craftsperson') {
     const outRes: ResourceKey =
-      runtime.resources.iron < runtime.capacities.iron - 1 ? 'iron' : 'gold';
-    if (runtime.resources[outRes] >= runtime.capacities[outRes] - 0.01) {
+      ledger.resources.iron < ledger.capacities.iron - 1 ? 'iron' : 'gold';
+    if (ledger.resources[outRes] >= ledger.capacities[outRes] - 0.01) {
       v.animationState = 'idle';
       v.speed = 0;
       v.gaitPhase += dt * 1.5;
@@ -1358,7 +1612,10 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
 
     let workshop = v.assignedBuildingId
       ? runtime.buildings.find(
-          (b) => b.id === v.assignedBuildingId && b.constructionState === 'completed',
+          (b) =>
+            b.id === v.assignedBuildingId &&
+            b.kingdomId === v.kingdomId &&
+            b.constructionState === 'completed',
         ) ?? null
       : null;
 
@@ -1450,7 +1707,7 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
     v.speed = 0;
     v.gaitPhase += dt * 1.5;
     const targetRes = v.preferredResource ?? OCCUPATION_CONFIGS[v.role].primaryResource;
-    if (targetRes && runtime.resources[targetRes] >= runtime.capacities[targetRes] - 0.01) {
+    if (targetRes && ledger.resources[targetRes] >= ledger.capacities[targetRes] - 0.01) {
       const rName = targetRes.charAt(0).toUpperCase() + targetRes.slice(1);
       v.activityLabel = `Paused — ${rName} storage full`;
     } else {
@@ -1460,7 +1717,7 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
   }
 
   // Stop gathering if kingdom storage for this node's resource is full
-  if (runtime.resources[node.resourceType] >= runtime.capacities[node.resourceType] - 0.01) {
+  if (ledger.resources[node.resourceType] >= ledger.capacities[node.resourceType] - 0.01) {
     v.animationState = 'idle';
     v.speed = 0;
     v.gaitPhase += dt * 1.5;
@@ -1508,11 +1765,12 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
     v.gaitPhase += dt * 3.6;
   }
 
-  // Nearby completed Mine Pit boosts mineral extraction speed by +25%
+  // Nearby completed Mine Pit owned by this kingdom boosts mineral extraction speed by +25%
   let localMineBoost = 1.0;
   if (v.role === 'Miner') {
     const hasNearbyMine = runtime.buildings.some(
       (b) =>
+        b.kingdomId === v.kingdomId &&
         b.archetype === 'mine_pit' &&
         b.constructionState === 'completed' &&
         Math.hypot(b.position.x - node.position.x, b.position.z - node.position.z) < 18,
@@ -1551,13 +1809,15 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
       node.richnessLabel = `Regrowing (${Math.ceil(node.regrowthTimer)}s)`;
     } else {
       node.richnessLabel = 'Deposit Exhausted';
-      pushEconomyNotification(
-        runtime,
-        `exhausted_${node.id}`,
-        'warning',
-        `Resource deposit exhausted: ${node.name}.`,
-        5,
-      );
+      if (ledger.isPlayer) {
+        pushEconomyNotification(
+          runtime,
+          `exhausted_${node.id}`,
+          'warning',
+          `Resource deposit exhausted: ${node.name}.`,
+          5,
+        );
+      }
     }
 
     if (v.carriedAmount > 0.1) {
@@ -1581,38 +1841,25 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
 }
 
 /**
- * Periodic macro-economic tick (runs every 0.5s, decoupled from 60fps render frames):
- * - Updates node regrowth timers
- * - Simulates food consumption by population
- * - Computes happiness & population growth (spawning actual new citizens when threshold reached)
- * - Updates rolling per-minute resource production & consumption rates
+ * Periodic macro-economic tick per kingdom (runs every 0.5s, decoupled from 60fps render frames)
  */
-function runPeriodicEconomyTick(tickDt: number, runtime: EconomyWorldRuntime): void {
-  // 1. Regrow renewable felled trees, fisheries, and hunting grounds
-  for (let i = 0; i < runtime.resourceNodes.length; i++) {
-    const node = runtime.resourceNodes[i];
-    if (node.depleted && node.regenerates && node.regrowthTimer > 0) {
-      node.regrowthTimer = Math.max(0, node.regrowthTimer - tickDt);
-      node.richnessLabel = `Regrowing (${Math.ceil(node.regrowthTimer)}s)`;
-      if (node.regrowthTimer <= 0) {
-        node.depleted = false;
-        node.remainingYield = node.maxYield;
-        node.richnessLabel = `${node.maxYield} ${node.resourceType} · Regrown`;
-        runtime.dirtyNodeIds.add(node.id);
-      }
-    }
-  }
+function runMacroTickForKingdom(
+  tickDt: number,
+  runtime: EconomyWorldRuntime,
+  ledger: KingdomEconomyLedger,
+): void {
+  const kId = ledger.kingdomId;
+  recalculateCapacitiesAndPopulation(runtime, kId);
 
   // 2. Population food consumption
-  recalculateCapacitiesAndPopulation(runtime);
-  const popCount = runtime.population.current;
+  const popCount = ledger.population.current;
   const foodNeeded = popCount * ECONOMY_RULES.foodConsumptionPerVillagerPerSec * tickDt;
-  const actualConsumed = Math.min(runtime.resources.food, foodNeeded);
+  const actualConsumed = Math.min(ledger.resources.food, foodNeeded);
 
   if (actualConsumed > 0) {
-    runtime.resources.food = Math.max(0, runtime.resources.food - actualConsumed);
-    runtime.economyStats.totalConsumedFood += actualConsumed;
-    runtime.recentLedger.push({
+    ledger.resources.food = Math.max(0, ledger.resources.food - actualConsumed);
+    ledger.economyStats.totalConsumedFood += actualConsumed;
+    ledger.recentLedger.push({
       time: runtime.elapsedSeconds,
       type: 'cons',
       resource: 'food',
@@ -1621,106 +1868,112 @@ function runPeriodicEconomyTick(tickDt: number, runtime: EconomyWorldRuntime): v
   }
 
   // 3. Food satisfaction, Happiness & Population Growth
-  const hasFoodShortage = runtime.resources.food < 1.0 && foodNeeded > 0;
+  const hasFoodShortage = ledger.resources.food < 1.0 && foodNeeded > 0;
   if (hasFoodShortage) {
-    runtime.population.foodSatisfaction = Math.max(
+    ledger.population.foodSatisfaction = Math.max(
       0,
-      runtime.population.foodSatisfaction - tickDt * 12,
+      ledger.population.foodSatisfaction - tickDt * 12,
     );
-    pushEconomyNotification(
-      runtime,
-      'food_shortage',
-      'alert',
-      'Food shortage! Assign Farmers, Hunters, or Fishermen to feed your population.',
-      20,
-    );
-  } else if (runtime.resources.food < ECONOMY_RULES.minFoodForPopulationGrowth) {
-    runtime.population.foodSatisfaction = Math.max(
+    if (ledger.isPlayer) {
+      pushEconomyNotification(
+        runtime,
+        'food_shortage',
+        'alert',
+        'Food shortage! Assign Farmers, Hunters, or Fishermen to feed your population.',
+        20,
+      );
+    }
+  } else if (ledger.resources.food < ECONOMY_RULES.minFoodForPopulationGrowth) {
+    ledger.population.foodSatisfaction = Math.max(
       45,
-      Math.min(75, runtime.population.foodSatisfaction + (60 - runtime.population.foodSatisfaction) * 0.2),
+      Math.min(75, ledger.population.foodSatisfaction + (60 - ledger.population.foodSatisfaction) * 0.2),
     );
   } else {
-    runtime.population.foodSatisfaction = Math.min(
+    ledger.population.foodSatisfaction = Math.min(
       100,
-      runtime.population.foodSatisfaction + tickDt * 10,
+      ledger.population.foodSatisfaction + tickDt * 10,
     );
   }
 
-  const housingHeadroom = runtime.population.capacity - runtime.population.current;
-  let targetHappiness = 55 + runtime.population.foodSatisfaction * 0.3;
+  const housingHeadroom = ledger.population.capacity - ledger.population.current;
+  let targetHappiness = 55 + ledger.population.foodSatisfaction * 0.3;
   if (housingHeadroom >= 4) targetHappiness += 8;
   else if (housingHeadroom <= 0) targetHappiness -= 10;
 
-  if (runtime.buildings.some((b) => b.archetype === 'royal_palace' && b.constructionState === 'completed')) {
+  if (runtime.buildings.some((b) => b.kingdomId === kId && b.archetype === 'royal_palace' && b.constructionState === 'completed')) {
     targetHappiness += 8;
   }
-  if (runtime.buildings.some((b) => b.archetype === 'council_chambers' && b.constructionState === 'completed')) {
+  if (runtime.buildings.some((b) => b.kingdomId === kId && b.archetype === 'council_chambers' && b.constructionState === 'completed')) {
     targetHappiness += 5;
   }
-  if (runtime.buildings.some((b) => b.archetype === 'market_courtyard' && b.constructionState === 'completed')) {
+  if (runtime.buildings.some((b) => b.kingdomId === kId && b.archetype === 'market_courtyard' && b.constructionState === 'completed')) {
     targetHappiness += 4;
   }
 
-  runtime.population.happiness = Math.round(
-    Math.max(10, Math.min(100, runtime.population.happiness + (targetHappiness - runtime.population.happiness) * 0.25)),
+  ledger.population.happiness = Math.round(
+    Math.max(10, Math.min(100, ledger.population.happiness + (targetHappiness - ledger.population.happiness) * 0.25)),
   );
 
   // Population grows ONLY when housing is available AND food reserves exceed threshold
   if (
-    runtime.population.current < runtime.population.capacity &&
-    runtime.resources.food >= ECONOMY_RULES.minFoodForPopulationGrowth &&
-    runtime.population.happiness >= 50
+    ledger.population.current < ledger.population.capacity &&
+    ledger.resources.food >= ECONOMY_RULES.minFoodForPopulationGrowth &&
+    ledger.population.happiness >= 50
   ) {
-    const happinessFactor = 0.65 + (runtime.population.happiness / 100) * 0.65;
-    runtime.population.growthProgress +=
+    const happinessFactor = 0.65 + (ledger.population.happiness / 100) * 0.65;
+    ledger.population.growthProgress +=
       ECONOMY_RULES.basePopulationGrowthRatePerSec * happinessFactor * tickDt;
 
-    if (runtime.population.growthProgress >= 100) {
-      runtime.population.growthProgress = 0;
+    if (ledger.population.growthProgress >= 100) {
+      ledger.population.growthProgress = 0;
       // Consume a small food welcome ration for the new citizen arrival
-      runtime.resources.food = Math.max(0, runtime.resources.food - 18);
+      ledger.resources.food = Math.max(0, ledger.resources.food - 18);
       const newCitizen = createSpawnedCitizen(
         runtime.characters.length,
-        runtime.kingdomId,
+        kId,
         runtime.region,
         runtime.seed,
+        ledger.settlementCenter,
       );
       runtime.characters.push(newCitizen);
       runtime.newlySpawnedCharacters.push(newCitizen);
-      runtime.economyStats.villagersBorn += 1;
-      recalculateCapacitiesAndPopulation(runtime);
-      pushEconomyNotification(
-        runtime,
-        `citizen_born_${newCitizen.id}`,
-        'success',
-        `${newCitizen.name} joined the settlement (Population ${runtime.population.current}/${runtime.population.capacity}).`,
-        2,
-      );
+      ledger.economyStats.villagersBorn += 1;
+      recalculateCapacitiesAndPopulation(runtime, kId);
+      if (ledger.isPlayer) {
+        pushEconomyNotification(
+          runtime,
+          `citizen_born_${newCitizen.id}`,
+          'success',
+          `${newCitizen.name} joined the settlement (Population ${ledger.population.current}/${ledger.population.capacity}).`,
+          2,
+        );
+      }
     }
   } else if (hasFoodShortage) {
-    runtime.population.growthProgress = Math.max(0, runtime.population.growthProgress - tickDt * 3);
+    ledger.population.growthProgress = Math.max(0, ledger.population.growthProgress - tickDt * 3);
   }
 
   // 4. Rolling 30-second production & continuous consumption rates per minute
   const windowSec = 30;
   const cutoff = runtime.elapsedSeconds - windowSec;
-  while (runtime.recentLedger.length > 0 && runtime.recentLedger[0].time < cutoff) {
-    runtime.recentLedger.shift();
+  while (ledger.recentLedger.length > 0 && ledger.recentLedger[0].time < cutoff) {
+    ledger.recentLedger.shift();
   }
 
   const effectiveWindow = Math.max(10, Math.min(windowSec, runtime.elapsedSeconds));
   const scaleToMinute = 60 / effectiveWindow;
 
-  // Estimate live in-field gathering rate for active non-paused workers so rates don't read 0 during first walk/haul
+  // Estimate live in-field gathering rate for active non-paused workers of this kingdom
   const activeFieldPerMin: ResourceAmounts = { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 };
   for (const v of runtime.characters) {
+    if (v.kingdomId !== kId || v.isMilitary || v.health <= 0) continue;
     if (v.role === 'Unemployed' || v.role === 'Builder') continue;
     const res =
       v.carriedResource ?? v.preferredResource ?? OCCUPATION_CONFIGS[v.role].primaryResource;
     if (!res) continue;
-    if (runtime.resources[res] >= runtime.capacities[res] - 0.05) continue;
-    // Duty-cycle factor (~0.58 accounts for walking to/from storage)
-    const estPerMin = OCCUPATION_CONFIGS[v.role].baseGatherRatePerSec * v.productivity * 0.58 * 60;
+    if (ledger.resources[res] >= ledger.capacities[res] - 0.05) continue;
+    const tradeBonus = v.role === 'Trader' ? ledger.tradeIncomeBonusMult || 1.0 : 1.0;
+    const estPerMin = OCCUPATION_CONFIGS[v.role].baseGatherRatePerSec * v.productivity * tradeBonus * 0.58 * 60;
     activeFieldPerMin[res] += estPerMin;
   }
 
@@ -1729,8 +1982,8 @@ function runPeriodicEconomyTick(tickDt: number, runtime: EconomyWorldRuntime): v
   for (const key of RESOURCE_KEYS) {
     let prodSum = 0;
     let consSum = 0;
-    for (let i = 0; i < runtime.recentLedger.length; i++) {
-      const entry = runtime.recentLedger[i];
+    for (let i = 0; i < ledger.recentLedger.length; i++) {
+      const entry = ledger.recentLedger[i];
       if (entry.resource !== key) continue;
       if (entry.type === 'prod') prodSum += entry.amount;
       else consSum += entry.amount;
@@ -1748,14 +2001,39 @@ function runPeriodicEconomyTick(tickDt: number, runtime: EconomyWorldRuntime): v
         ? Math.round(
             Math.max(
               consSum * scaleToMinute,
-              runtime.population.current * ECONOMY_RULES.foodConsumptionPerVillagerPerSec * 60,
+              ledger.population.current * ECONOMY_RULES.foodConsumptionPerVillagerPerSec * 60,
             ) * 10,
           ) / 10
         : Math.round(consSum * scaleToMinute * 10) / 10;
 
-    runtime.rates.productionPerMinute[key] = prodPerMin;
-    runtime.rates.consumptionPerMinute[key] = consPerMin;
-    runtime.rates.netPerMinute[key] = Math.round((prodPerMin - consPerMin) * 10) / 10;
+    ledger.rates.productionPerMinute[key] = prodPerMin;
+    ledger.rates.consumptionPerMinute[key] = consPerMin;
+    ledger.rates.netPerMinute[key] = Math.round((prodPerMin - consPerMin) * 10) / 10;
+  }
+}
+
+function runPeriodicEconomyTick(tickDt: number, runtime: EconomyWorldRuntime): void {
+  // 1. Regrow renewable felled trees, fisheries, and hunting grounds
+  for (let i = 0; i < runtime.resourceNodes.length; i++) {
+    const node = runtime.resourceNodes[i];
+    if (node.depleted && node.regenerates && node.regrowthTimer > 0) {
+      node.regrowthTimer = Math.max(0, node.regrowthTimer - tickDt);
+      node.richnessLabel = `Regrowing (${Math.ceil(node.regrowthTimer)}s)`;
+      if (node.regrowthTimer <= 0) {
+        node.depleted = false;
+        node.remainingYield = node.maxYield;
+        node.richnessLabel = `${node.maxYield} ${node.resourceType} · Regrown`;
+        runtime.dirtyNodeIds.add(node.id);
+      }
+    }
+  }
+
+  if (runtime.kingdomLedgers && runtime.kingdomLedgers.size > 0) {
+    for (const ledger of runtime.kingdomLedgers.values()) {
+      runMacroTickForKingdom(tickDt, runtime, ledger);
+    }
+  } else {
+    runMacroTickForKingdom(tickDt, runtime, resolveKingdomLedger(runtime, runtime.kingdomId));
   }
 }
 

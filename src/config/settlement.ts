@@ -44,6 +44,112 @@ export interface SettlementWorldData {
   characters: CharacterEntity[];
   resourceNodes: EnvironmentNodeEntity[];
   roads: { from: [number, number]; to: [number, number]; width: number }[];
+  capitalCenters: Record<KingdomId, { x: number; z: number }>;
+}
+
+function isFlatDryPatch(
+  x: number,
+  z: number,
+  radius: number,
+  region: RegionConfig,
+  seed: number,
+): boolean {
+  if (Math.abs(x) > 80 || Math.abs(z) > 80) return false;
+  const centerY = sampleTerrainHeight(x, z, region, seed);
+  if (centerY < WATER_LEVEL + 0.48) return false;
+  if (sampleTerrainSlope(x, z, region, seed) > 0.46) return false;
+  for (const [ox, oz] of [
+    [radius, 0],
+    [-radius, 0],
+    [0, radius],
+    [0, -radius],
+  ]) {
+    const py = sampleTerrainHeight(x + ox, z + oz, region, seed);
+    if (py < WATER_LEVEL + 0.25) return false;
+    if (sampleTerrainSlope(x + ox, z + oz, region, seed) > 0.54) return false;
+  }
+  return true;
+}
+
+export function findValidTerritoryCenter(
+  preferredX: number,
+  preferredZ: number,
+  region: RegionConfig,
+  seed: number,
+  avoidCenters: { x: number; z: number }[],
+  minSpacing = 34,
+): { x: number; z: number } {
+  const candidates: [number, number][] = [[preferredX, preferredZ]];
+  for (let ring = 4; ring <= 48; ring += 5) {
+    for (let a = 0; a < 12; a++) {
+      const theta = (a / 12) * Math.PI * 2;
+      candidates.push([
+        Math.round(preferredX + Math.cos(theta) * ring),
+        Math.round(preferredZ + Math.sin(theta) * ring),
+      ]);
+    }
+  }
+  // Safe inland & highland fallbacks for coastal or river-heavy maps
+  const fallbacks: [number, number][] = [
+    [-54, -46],
+    [54, -46],
+    [-64, -14],
+    [64, -14],
+    [-50, -64],
+    [50, -64],
+    [-52, 42],
+    [52, 42],
+    [0, -58],
+  ];
+  candidates.push(...fallbacks);
+
+  for (const [cx, cz] of candidates) {
+    if (!isFlatDryPatch(cx, cz, 7.5, region, seed)) continue;
+    const clear = avoidCenters.every(
+      (ac) => Math.hypot(cx - ac.x, cz - ac.z) >= minSpacing,
+    );
+    if (clear) {
+      return { x: cx, z: cz };
+    }
+  }
+
+  return { x: preferredX, z: -Math.abs(preferredZ) };
+}
+
+export function findValidNearbyPlot(
+  centerX: number,
+  centerZ: number,
+  offsetX: number,
+  offsetZ: number,
+  region: RegionConfig,
+  seed: number,
+  existingPts: { x: number; z: number; r: number }[],
+  minRadius: number,
+): { x: number; z: number } {
+  const tryPts: [number, number][] = [[centerX + offsetX, centerZ + offsetZ]];
+  const baseAngle = Math.atan2(offsetZ, offsetX);
+  const baseDist = Math.max(6, Math.hypot(offsetX, offsetZ));
+  for (let d = baseDist; d <= baseDist + 16; d += 3.5) {
+    for (let step = 0; step < 12; step++) {
+      const ang = baseAngle + step * ((Math.PI * 2) / 12);
+      tryPts.push([
+        Math.round((centerX + Math.cos(ang) * d) * 10) / 10,
+        Math.round((centerZ + Math.sin(ang) * d) * 10) / 10,
+      ]);
+    }
+  }
+
+  for (const [px, pz] of tryPts) {
+    if (Math.abs(px) > 84 || Math.abs(pz) > 84) continue;
+    const py = sampleTerrainHeight(px, pz, region, seed);
+    const slope = sampleTerrainSlope(px, pz, region, seed);
+    if (py < WATER_LEVEL + 0.3 || slope > 0.5) continue;
+    const collides = existingPts.some(
+      (ep) => Math.hypot(px - ep.x, pz - ep.z) < ep.r + minRadius + 1.2,
+    );
+    if (!collides) return { x: px, z: pz };
+  }
+  return { x: centerX + offsetX, z: centerZ + offsetZ };
 }
 
 export function createVillagerEntity(params: {
@@ -110,13 +216,14 @@ export function createSpawnedCitizen(
   kingdomId: KingdomId,
   region: RegionConfig,
   seed: number,
+  settlementCenter: { x: number; z: number } = { x: 0, z: 0 },
 ): CharacterEntity {
   const baseName = VILLAGER_NAMES[existingCount % VILLAGER_NAMES.length];
   const angle = (existingCount * 1.37) % (Math.PI * 2);
-  const spawnX = Math.cos(angle) * 5.2;
-  const spawnZ = 4.2 + Math.sin(angle) * 2.6;
+  const spawnX = settlementCenter.x + Math.cos(angle) * 5.2;
+  const spawnZ = settlementCenter.z + 4.2 + Math.sin(angle) * 2.6;
   return createVillagerEntity({
-    id: `char_citizen_${existingCount + 1}_${Math.floor(Math.abs(spawnX * 100))}`,
+    id: `char_citizen_${kingdomId}_${existingCount + 1}_${Math.floor(Math.abs(spawnX * 100))}`,
     name: `Citizen ${baseName}`,
     role: 'Unemployed',
     kingdomId,
@@ -575,22 +682,54 @@ export function generateInitialSettlement(
     }),
   );
 
-  // Generate rival AI kingdom settlements across outer map territories
+  // Generate rival AI kingdom settlements across outer map territories (validated dry/flat ground)
   const allKingdomIds: KingdomId[] = ['oru', 'zambara', 'kemetra', 'aseka', 'nambara'];
   const rivalKingdomIds = allKingdomIds.filter((k) => k !== kingdomId);
-  const rivalPositions: [number, number][] = [
-    [-48, -42],
-    [48, -42],
-    [-48, 42],
-    [48, 42],
-  ];
+  const capitalCenters: Record<KingdomId, { x: number; z: number }> = {
+    oru: { x: 0, z: 0 },
+    zambara: { x: 0, z: 0 },
+    kemetra: { x: 0, z: 0 },
+    aseka: { x: 0, z: 0 },
+    nambara: { x: 0, z: 0 },
+  };
+  capitalCenters[kingdomId] = { x: 0, z: 0 };
+
+  const preferredRivalPositions: [number, number][] = region.terrain.hasCoastline
+    ? [
+        [-54, -44],
+        [54, -44],
+        [-64, -10],
+        [64, -10],
+      ]
+    : [
+        [-50, -44],
+        [50, -44],
+        [-50, 46],
+        [50, 46],
+      ];
+
+  const occupiedCenters: { x: number; z: number }[] = [{ x: 0, z: 0 }];
 
   rivalKingdomIds.forEach((rId, rIndex) => {
     const rKingdom = KINGDOMS[rId];
-    const [cx, cz] = rivalPositions[rIndex];
+    const rBonus = KINGDOM_ECONOMIC_BONUSES[rId];
+    const [prefX, prefZ] = preferredRivalPositions[rIndex];
+    const center = findValidTerritoryCenter(
+      prefX,
+      prefZ,
+      region,
+      seed,
+      occupiedCenters,
+      36,
+    );
+    occupiedCenters.push(center);
+    capitalCenters[rId] = center;
+    const { x: cx, z: cz } = center;
+    const placedPts: { x: number; z: number; r: number }[] = [{ x: cx, z: cz, r: 4.8 }];
 
     // Main Chieftain Compound
     const compoundY = sampleTerrainHeight(cx, cz, region, seed);
+    const compoundBp = BUILDING_CATALOG.royal_compound;
     buildings.push({
       id: `bld_royal_${rId}`,
       category: 'building',
@@ -600,25 +739,27 @@ export function generateInitialSettlement(
       kingdomId: rId,
       position: { x: cx, y: compoundY, z: cz },
       rotationY: 0.1,
-      footprintRadius: 4.8,
+      footprintRadius: compoundBp.footprintRadius,
       description: `Seat of ${rKingdom.name} sovereign power and governance.`,
       statusText: 'Active Governance · Universal Storage',
-      integrity: 600,
-      maxIntegrity: 600,
+      integrity: compoundBp.maxIntegrity,
+      maxIntegrity: compoundBp.maxIntegrity,
       constructionState: 'completed',
       constructionProgress: 1,
-      constructionWorkRequired: 180,
+      constructionWorkRequired: compoundBp.constructionWorkRequired,
       constructionCost: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
-      housingBonus: 12,
-      storageBonus: { food: 500, wood: 500, stone: 500, iron: 300, gold: 300 },
-      acceptsStorage: ['food', 'wood', 'stone', 'iron', 'gold'],
+      housingBonus: compoundBp.housingBonus,
+      storageBonus: { ...compoundBp.storageBonus },
+      acceptsStorage: [...compoundBp.acceptsStorage],
       assignedWorkerIds: [],
-      maxWorkers: 6,
+      maxWorkers: compoundBp.maxWorkers,
+      linkedNodeId: null,
     });
 
     // Granary
-    const granaryX = cx + 8;
-    const granaryZ = cz - 4;
+    const granaryBp = BUILDING_CATALOG.granary_storehouse;
+    const granaryPos = findValidNearbyPlot(cx, cz, 9, -5, region, seed, placedPts, granaryBp.footprintRadius);
+    placedPts.push({ ...granaryPos, r: granaryBp.footprintRadius });
     buildings.push({
       id: `bld_granary_${rId}`,
       category: 'building',
@@ -626,27 +767,29 @@ export function generateInitialSettlement(
       archetype: 'granary_storehouse',
       buildingClass: 'Economic',
       kingdomId: rId,
-      position: { x: granaryX, y: sampleTerrainHeight(granaryX, granaryZ, region, seed), z: granaryZ },
+      position: { x: granaryPos.x, y: sampleTerrainHeight(granaryPos.x, granaryPos.z, region, seed), z: granaryPos.z },
       rotationY: -0.4,
-      footprintRadius: 3.2,
+      footprintRadius: granaryBp.footprintRadius,
       description: 'Grain storage for regional population.',
       statusText: 'Completed · Granary Storage',
-      integrity: 350,
-      maxIntegrity: 350,
+      integrity: granaryBp.maxIntegrity,
+      maxIntegrity: granaryBp.maxIntegrity,
       constructionState: 'completed',
       constructionProgress: 1,
-      constructionWorkRequired: 90,
+      constructionWorkRequired: granaryBp.constructionWorkRequired,
       constructionCost: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
-      housingBonus: 0,
-      storageBonus: { food: 600 },
-      acceptsStorage: ['food'],
+      housingBonus: granaryBp.housingBonus,
+      storageBonus: { ...granaryBp.storageBonus },
+      acceptsStorage: [...granaryBp.acceptsStorage],
       assignedWorkerIds: [],
-      maxWorkers: 4,
+      maxWorkers: granaryBp.maxWorkers,
+      linkedNodeId: null,
     });
 
     // Farm Terrace
-    const farmX = cx + 10;
-    const farmZ = cz + 8;
+    const farmBp = BUILDING_CATALOG.cultivated_farm;
+    const farmPos = findValidNearbyPlot(cx, cz, 10, 9, region, seed, placedPts, farmBp.footprintRadius);
+    placedPts.push({ ...farmPos, r: farmBp.footprintRadius });
     buildings.push({
       id: `bld_farm_${rId}`,
       category: 'building',
@@ -654,27 +797,29 @@ export function generateInitialSettlement(
       archetype: 'cultivated_farm',
       buildingClass: 'Economic',
       kingdomId: rId,
-      position: { x: farmX, y: sampleTerrainHeight(farmX, farmZ, region, seed), z: farmZ },
+      position: { x: farmPos.x, y: sampleTerrainHeight(farmPos.x, farmPos.z, region, seed), z: farmPos.z },
       rotationY: 0.2,
-      footprintRadius: 4.2,
+      footprintRadius: farmBp.footprintRadius,
       description: 'Cultivated farm plot feeding the regional capital.',
       statusText: 'Active Cropland',
-      integrity: 250,
-      maxIntegrity: 250,
+      integrity: farmBp.maxIntegrity,
+      maxIntegrity: farmBp.maxIntegrity,
       constructionState: 'completed',
       constructionProgress: 1,
-      constructionWorkRequired: 80,
+      constructionWorkRequired: farmBp.constructionWorkRequired,
       constructionCost: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
-      housingBonus: 0,
-      storageBonus: {},
-      acceptsStorage: [],
+      housingBonus: farmBp.housingBonus,
+      storageBonus: { ...farmBp.storageBonus },
+      acceptsStorage: [...farmBp.acceptsStorage],
       assignedWorkerIds: [],
-      maxWorkers: 4,
+      maxWorkers: farmBp.maxWorkers,
+      linkedNodeId: null,
     });
 
     // Watch Post
-    const watchX = cx - 10;
-    const watchZ = cz - 8;
+    const watchBp = BUILDING_CATALOG.watch_post;
+    const watchPos = findValidNearbyPlot(cx, cz, -10, -8, region, seed, placedPts, watchBp.footprintRadius);
+    placedPts.push({ ...watchPos, r: watchBp.footprintRadius });
     buildings.push({
       id: `bld_watch_${rId}`,
       category: 'building',
@@ -682,29 +827,180 @@ export function generateInitialSettlement(
       archetype: 'watch_post',
       buildingClass: 'Defensive',
       kingdomId: rId,
-      position: { x: watchX, y: sampleTerrainHeight(watchX, watchZ, region, seed), z: watchZ },
+      position: { x: watchPos.x, y: sampleTerrainHeight(watchPos.x, watchPos.z, region, seed), z: watchPos.z },
       rotationY: 0.5,
-      footprintRadius: 2.8,
+      footprintRadius: watchBp.footprintRadius,
       description: 'Frontier lookout post scanning border approaches.',
       statusText: 'Operational Sentinel',
-      integrity: 450,
-      maxIntegrity: 450,
+      integrity: watchBp.maxIntegrity,
+      maxIntegrity: watchBp.maxIntegrity,
       constructionState: 'completed',
       constructionProgress: 1,
-      constructionWorkRequired: 100,
+      constructionWorkRequired: watchBp.constructionWorkRequired,
       constructionCost: { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 },
-      housingBonus: 0,
-      storageBonus: {},
-      acceptsStorage: [],
+      housingBonus: watchBp.housingBonus,
+      storageBonus: { ...watchBp.storageBonus },
+      acceptsStorage: [...watchBp.acceptsStorage],
       assignedWorkerIds: [],
-      maxWorkers: 2,
+      maxWorkers: watchBp.maxWorkers,
+      linkedNodeId: null,
     });
 
-    // 4 Initial AI Villagers per rival kingdom
-    const rivalRoles: CivilianRole[] = ['Farmer', 'Woodcutter', 'Miner', 'Builder'];
+    // Local resource cluster so every AI kingdom follows fair Phase 2 gathering rules
+    const localNodeTemplates: {
+      suffix: string;
+      name: string;
+      nodeKind: EnvironmentNodeEntity['nodeKind'];
+      resourceType: EnvironmentNodeEntity['resourceType'];
+      ox: number;
+      oz: number;
+      radius: number;
+      yieldAmount: number;
+      rate: number;
+      regenerates: boolean;
+      regrowth: number;
+      maxHarvesters: number;
+    }[] = [
+      {
+        suffix: 'timber',
+        name: `${rKingdom.name} Hardwood Stand`,
+        nodeKind: 'timber_grove',
+        resourceType: 'wood',
+        ox: -15,
+        oz: 5,
+        radius: 3.6,
+        yieldAmount: 950,
+        rate: 2.3,
+        regenerates: true,
+        regrowth: Math.round(45 * rBonus.treeRegrowthTimeMult),
+        maxHarvesters: 4,
+      },
+      {
+        suffix: 'tree_1',
+        name: `${rKingdom.name} Acacia Timber #1`,
+        nodeKind: 'harvestable_tree',
+        resourceType: 'wood',
+        ox: -12,
+        oz: 12,
+        radius: 2.0,
+        yieldAmount: 110,
+        rate: 2.3,
+        regenerates: true,
+        regrowth: Math.round(32 * rBonus.treeRegrowthTimeMult),
+        maxHarvesters: 2,
+      },
+      {
+        suffix: 'tree_2',
+        name: `${rKingdom.name} Acacia Timber #2`,
+        nodeKind: 'harvestable_tree',
+        resourceType: 'wood',
+        ox: 15,
+        oz: -9,
+        radius: 2.0,
+        yieldAmount: 110,
+        rate: 2.3,
+        regenerates: true,
+        regrowth: Math.round(32 * rBonus.treeRegrowthTimeMult),
+        maxHarvesters: 2,
+      },
+      {
+        suffix: 'stone',
+        name: `${rKingdom.name} Granite Quarry`,
+        nodeKind: 'stone_quarry',
+        resourceType: 'stone',
+        ox: -15,
+        oz: -15,
+        radius: 3.8,
+        yieldAmount: 2400,
+        rate: 2.1,
+        regenerates: false,
+        regrowth: 0,
+        maxHarvesters: 4,
+      },
+      {
+        suffix: 'iron',
+        name: `${rKingdom.name} Ironstone Seam`,
+        nodeKind: 'iron_deposit',
+        resourceType: 'iron',
+        ox: 16,
+        oz: -14,
+        radius: 3.6,
+        yieldAmount: 1800,
+        rate: 1.85,
+        regenerates: false,
+        regrowth: 0,
+        maxHarvesters: 4,
+      },
+      {
+        suffix: 'gold',
+        name: `${rKingdom.name} Gold Outcrop`,
+        nodeKind: 'gold_outcrop',
+        resourceType: 'gold',
+        ox: 18,
+        oz: 2,
+        radius: 3.5,
+        yieldAmount: 1400,
+        rate: 1.65,
+        regenerates: false,
+        regrowth: 0,
+        maxHarvesters: 3,
+      },
+      {
+        suffix: 'game',
+        name: `${rKingdom.name} Savannah Herd`,
+        nodeKind: 'hunting_ground',
+        resourceType: 'food',
+        ox: 0,
+        oz: -17,
+        radius: 3.8,
+        yieldAmount: 1000,
+        rate: 2.5,
+        regenerates: true,
+        regrowth: 40,
+        maxHarvesters: 3,
+      },
+    ];
+
+    for (const tpl of localNodeTemplates) {
+      const pos = findValidNearbyPlot(cx, cz, tpl.ox, tpl.oz, region, seed, placedPts, tpl.radius);
+      placedPts.push({ ...pos, r: tpl.radius });
+      resourceNodes.push({
+        id: `res_${rId}_${tpl.suffix}`,
+        category: 'resource_node',
+        name: tpl.name,
+        nodeKind: tpl.nodeKind,
+        resourceType: tpl.resourceType,
+        richnessLabel: tpl.regenerates
+          ? `${tpl.yieldAmount} ${tpl.resourceType} · Renewable`
+          : `${tpl.yieldAmount} ${tpl.resourceType} Remaining`,
+        position: {
+          x: pos.x,
+          y: sampleTerrainHeight(pos.x, pos.z, region, seed),
+          z: pos.z,
+        },
+        rotationY: ((Math.abs(pos.x) * 11 + Math.abs(pos.z) * 5) % 360) * (Math.PI / 180),
+        footprintRadius: tpl.radius,
+        description: `Regional ${tpl.resourceType} resource deposit near ${rKingdom.name}.`,
+        remainingYield: tpl.yieldAmount,
+        maxYield: tpl.yieldAmount,
+        collectionRate: tpl.rate,
+        interactionRadius: tpl.radius + 0.9,
+        regenerates: tpl.regenerates,
+        regrowthDuration: tpl.regrowth,
+        regrowthTimer: 0,
+        depleted: false,
+        activeHarvesterIds: [],
+        maxHarvesters: tpl.maxHarvesters,
+        ownerKingdomId: rId,
+      });
+    }
+
+    // 5 Initial AI Villagers per rival kingdom so every AI starts with full worker coverage
+    const rivalRoles: CivilianRole[] = ['Farmer', 'Woodcutter', 'Miner', 'Miner', 'Builder'];
     rivalRoles.forEach((role, idx) => {
-      const vx = cx + (idx % 2 === 0 ? 5 : -5);
-      const vz = cz + (idx < 2 ? 5 : -5);
+      const angle = (idx / rivalRoles.length) * Math.PI * 2;
+      const vx = cx + Math.cos(angle) * 5.2;
+      const vz = cz + Math.sin(angle) * 5.2;
       const villager = createVillagerEntity({
         id: `char_${rId}_v_${idx + 1}`,
         name: `${rKingdom.name} ${role} ${idx + 1}`,
@@ -716,9 +1012,86 @@ export function generateInitialSettlement(
         seed,
         indexSeed: rIndex * 10 + idx + 50,
       });
+      if (role === 'Miner' && idx === 3) {
+        villager.preferredResource = 'iron';
+      }
       characters.push(villager);
     });
   });
 
-  return { buildings, characters, resourceNodes, roads };
+  // Contested neutral frontier deposits across mid-map corridors
+  const frontierNodes: {
+    id: string;
+    name: string;
+    nodeKind: EnvironmentNodeEntity['nodeKind'];
+    resourceType: EnvironmentNodeEntity['resourceType'];
+    x: number;
+    z: number;
+    yieldAmount: number;
+    rate: number;
+  }[] = [
+    {
+      id: 'res_frontier_gold_west',
+      name: 'Contested Western Gold Vein',
+      nodeKind: 'gold_outcrop',
+      resourceType: 'gold',
+      x: -36,
+      z: -10,
+      yieldAmount: 2400,
+      rate: 1.9,
+    },
+    {
+      id: 'res_frontier_iron_east',
+      name: 'Eastern Ridge Iron Seam',
+      nodeKind: 'iron_deposit',
+      resourceType: 'iron',
+      x: 38,
+      z: -12,
+      yieldAmount: 2600,
+      rate: 2.0,
+    },
+    {
+      id: 'res_frontier_stone_north',
+      name: 'Highland Border Quarry',
+      nodeKind: 'stone_quarry',
+      resourceType: 'stone',
+      x: 0,
+      z: -56,
+      yieldAmount: 3600,
+      rate: 2.2,
+    },
+  ];
+
+  for (const fn of frontierNodes) {
+    const pos = findValidNearbyPlot(fn.x, fn.z, 0, 0, region, seed, [], 3.8);
+    resourceNodes.push({
+      id: fn.id,
+      category: 'resource_node',
+      name: fn.name,
+      nodeKind: fn.nodeKind,
+      resourceType: fn.resourceType,
+      richnessLabel: `Neutral Frontier · ${fn.yieldAmount} ${fn.resourceType}`,
+      position: {
+        x: pos.x,
+        y: sampleTerrainHeight(pos.x, pos.z, region, seed),
+        z: pos.z,
+      },
+      rotationY: 0.4,
+      footprintRadius: 3.8,
+      description: 'Contested neutral mineral deposit located along inter-kingdom borderlands.',
+      remainingYield: fn.yieldAmount,
+      maxYield: fn.yieldAmount,
+      collectionRate: fn.rate,
+      interactionRadius: 4.7,
+      regenerates: false,
+      regrowthDuration: 0,
+      regrowthTimer: 0,
+      depleted: false,
+      activeHarvesterIds: [],
+      maxHarvesters: 5,
+      ownerKingdomId: null,
+    });
+  }
+
+  return { buildings, characters, resourceNodes, roads, capitalCenters };
 }

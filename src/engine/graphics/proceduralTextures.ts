@@ -15,6 +15,8 @@ export interface ProceduralTextureSet {
   bannerMap: THREE.CanvasTexture;
   shieldHideMap: THREE.CanvasTexture;
   foliageMap: THREE.CanvasTexture;
+  smokePuffMap: THREE.CanvasTexture;
+  cloudPuffMap: THREE.CanvasTexture;
   dispose: () => void;
 }
 
@@ -430,6 +432,54 @@ export function createProceduralTextureSet(maxAnisotropy: number): ProceduralTex
   foliageMap.repeat.set(3, 3);
   foliageMap.anisotropy = aniso;
 
+  // 15. Soft Volumetric Smoke / Dust Puff Billboard Sprite (128x128)
+  const smokeCanvas = document.createElement('canvas');
+  smokeCanvas.width = 128;
+  smokeCanvas.height = 128;
+  const smCtx = smokeCanvas.getContext('2d')!;
+  smCtx.clearRect(0, 0, 128, 128);
+  for (let lobe = 0; lobe < 5; lobe++) {
+    const cx = 64 + (rand() - 0.5) * 28;
+    const cy = 64 + (rand() - 0.5) * 28;
+    const r = 28 + rand() * 20;
+    const g = smCtx.createRadialGradient(cx, cy, 4, cx, cy, r);
+    g.addColorStop(0, 'rgba(245, 240, 232, 0.55)');
+    g.addColorStop(0.55, 'rgba(220, 212, 198, 0.24)');
+    g.addColorStop(1, 'rgba(200, 190, 178, 0)');
+    smCtx.fillStyle = g;
+    smCtx.beginPath();
+    smCtx.arc(cx, cy, r, 0, Math.PI * 2);
+    smCtx.fill();
+  }
+  const smokePuffMap = new THREE.CanvasTexture(smokeCanvas);
+  smokePuffMap.colorSpace = THREE.SRGBColorSpace;
+
+  // 16. Soft Atmospheric Cloud Cluster Sprite (256x128)
+  const cloudCanvas = document.createElement('canvas');
+  cloudCanvas.width = 256;
+  cloudCanvas.height = 128;
+  const clCtx = cloudCanvas.getContext('2d')!;
+  clCtx.clearRect(0, 0, 256, 128);
+  const cloudLobes: [number, number, number][] = [
+    [128, 66, 56],
+    [88, 72, 42],
+    [168, 72, 42],
+    [110, 52, 38],
+    [150, 54, 36],
+  ];
+  for (const [cx, cy, rad] of cloudLobes) {
+    const cg = clCtx.createRadialGradient(cx, cy, 6, cx, cy, rad);
+    cg.addColorStop(0, 'rgba(255, 250, 240, 0.68)');
+    cg.addColorStop(0.6, 'rgba(248, 240, 226, 0.25)');
+    cg.addColorStop(1, 'rgba(248, 240, 226, 0)');
+    clCtx.fillStyle = cg;
+    clCtx.beginPath();
+    clCtx.arc(cx, cy, rad, 0, Math.PI * 2);
+    clCtx.fill();
+  }
+  const cloudPuffMap = new THREE.CanvasTexture(cloudCanvas);
+  cloudPuffMap.colorSpace = THREE.SRGBColorSpace;
+
   return {
     terrainBump,
     masonryBump,
@@ -445,6 +495,8 @@ export function createProceduralTextureSet(maxAnisotropy: number): ProceduralTex
     bannerMap,
     shieldHideMap,
     foliageMap,
+    smokePuffMap,
+    cloudPuffMap,
     dispose: () => {
       terrainBump.dispose();
       masonryBump.dispose();
@@ -460,6 +512,8 @@ export function createProceduralTextureSet(maxAnisotropy: number): ProceduralTex
       bannerMap.dispose();
       shieldHideMap.dispose();
       foliageMap.dispose();
+      smokePuffMap.dispose();
+      cloudPuffMap.dispose();
     },
   };
 }

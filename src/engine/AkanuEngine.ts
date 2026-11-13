@@ -33,6 +33,7 @@ import {
   stepCameraRig,
   zoomCamera,
 } from './camera/rtsCameraMath';
+import { resolveAdaptiveMusicMood, soundEngine } from './audio/soundEngine';
 import { updateProceduralCharacterAnimation } from './graphics/characterFactory';
 import { createProceduralTextureSet, ProceduralTextureSet } from './graphics/proceduralTextures';
 import { buildProceduralWorld, BuiltWorldScene } from './graphics/worldBuilder';
@@ -40,6 +41,7 @@ import { sampleTerrainHeight, WATER_LEVEL } from './math/noise';
 import { cloneWorldEntities } from './persistence/saveSystem';
 import {
   assignVillagerOccupation,
+  attachAIKingdomLedgers,
   cancelPlannedOrActiveConstruction,
   cancelVillagerTask,
   commandVillagerMove,
@@ -79,15 +81,19 @@ import {
 import {
   AIKingdomManager,
   createInitialAIKingdomManager,
+  estimateMilitaryPower,
   stepAIKingdomManager,
+  updateAllKingdomIntelligence,
 } from './simulation/aiKingdomSim';
 import {
   addDiplomaticTreaty,
   createInitialDiplomacyState,
+  declareWarBetweenKingdoms,
   DiplomacyState,
   evaluateProposalAcceptance,
+  proposePeaceTreaty,
+  sendDiplomaticGift,
   stepDiplomacy,
-  updateDiplomaticScore,
 } from './simulation/diplomacySim';
 import {
   createInitialWorldEventState,
@@ -104,6 +110,7 @@ export interface EconomyHudSnapshot {
   economyStats: EconomyStatistics;
   elapsedPlaySeconds: number;
   allEntities: SelectableEntity[];
+  difficultyLevel: AIDifficulty;
 }
 
 export interface EngineCallbacks {
@@ -175,6 +182,7 @@ export class AkanuEngine {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private sunLight: THREE.DirectionalLight;
+  private rimLight: THREE.DirectionalLight;
   private hemiLight: THREE.HemisphereLight;
   private envTexture: THREE.Texture | null = null;
   private textures: ProceduralTextureSet;
@@ -293,6 +301,11 @@ export class AkanuEngine {
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
 
+    this.rimLight = new THREE.DirectionalLight('#9ec5e8', 0.42);
+    this.rimLight.position.set(-42, 34, -36);
+    this.scene.add(this.rimLight);
+    this.scene.add(this.rimLight.target);
+
     this.textures = createProceduralTextureSet(this.renderer.capabilities.getMaxAnisotropy());
 
     this.bindInputListeners();
@@ -377,6 +390,9 @@ export class AkanuEngine {
     this.sunLight.intensity = region.palette.sunIntensity;
     this.hemiLight.color.set(region.palette.hemiSkyColor);
     this.hemiLight.groundColor.set(region.palette.hemiGroundColor);
+    this.rimLight.color.set(region.palette.hemiSkyColor);
+
+    soundEngine.setMusicMood(this.cameraTourMode ? 'menu' : 'peaceful', params.regionId);
 
     this.applyQualityToRenderer(params.quality);
 
@@ -414,15 +430,21 @@ export class AkanuEngine {
       params.kingdomId,
       saved?.difficultyLevel || 'normal',
       saved?.aiKingdomsData,
+      this.activeWorld.capitalCenters,
     );
+    attachAIKingdomLedgers(this.economyRuntime, this.aiKingdomManager.kingdoms);
+
     this.diplomacyState = createInitialDiplomacyState(
       params.kingdomId,
       saved?.diplomacyData,
     );
-    this.worldEventState = createInitialWorldEventState();
-    if (saved?.worldEventsData && saved.worldEventsData.length > 0) {
-      this.worldEventState.events = [...saved.worldEventsData];
-    }
+    this.worldEventState = createInitialWorldEventState(saved?.worldEventsData);
+    updateAllKingdomIntelligence(
+      this.aiKingdomManager,
+      this.economyRuntime,
+      this.diplomacyState,
+      this.worldEventState.events,
+    );
 
     this.scene.remove(this.projectileMeshesGroup);
     this.projectileMeshesGroup.clear();
@@ -473,7 +495,13 @@ export class AkanuEngine {
           settings: {
             graphicsQuality: quality,
             cameraPanSpeed: this.panSpeedMultiplier,
-            audio: { masterVolume: 0.75, musicVolume: 0.55, sfxVolume: 0.8, muted: false },
+            audio: {
+              masterVolume: 0.75,
+              musicVolume: 0.55,
+              ambienceVolume: 0.65,
+              sfxVolume: 0.8,
+              muted: false,
+            },
           },
           elapsedPlaySeconds: this.economyRuntime.elapsedSeconds,
           difficultyLevel: this.aiKingdomManager.difficulty,
@@ -510,6 +538,14 @@ export class AkanuEngine {
       };
     }
 
+    const diplomacyData = Object.entries(this.diplomacyState.relations).reduce(
+      (acc, [k, v]) => {
+        acc[k as KingdomId] = Object.values(v);
+        return acc;
+      },
+      {} as Record<KingdomId, DiplomaticRelation[]>,
+    );
+
     return {
       version: 2,
       savedAtIso: new Date().toISOString(),
@@ -519,6 +555,7 @@ export class AkanuEngine {
       regionId: this.currentParams.regionId,
       worldSeed: this.currentParams.seed,
       gameMode: this.economyRuntime.capacityMultiplier > 1.5 ? 'sandbox' : 'standard',
+      difficultyLevel: this.aiKingdomManager.difficulty,
       progressionStage: this.economyRuntime.progressionStage,
       resources: { ...this.economyRuntime.resources },
       capacities: { ...this.economyRuntime.capacities },
@@ -536,6 +573,9 @@ export class AkanuEngine {
       cameraTarget: camSnap,
       settings,
       elapsedPlaySeconds: this.economyRuntime.elapsedSeconds,
+      aiKingdomsData: Object.values(this.aiKingdomManager.kingdoms),
+      diplomacyData,
+      worldEventsData: [...this.worldEventState.events],
       worldEntities: cloneWorldEntities({
         buildings: this.economyRuntime.buildings,
         characters: this.economyRuntime.characters,
@@ -636,6 +676,9 @@ export class AkanuEngine {
     if (!this.activeWorld) return [];
     const matched = this.activeWorld.characters
       .filter((c) => {
+        if (c.kingdomId !== this.currentParams.kingdomId || c.isMilitary || c.health <= 0) {
+          return false;
+        }
         if (filter === 'all') return true;
         if (filter === 'idle') return c.role === 'Unemployed';
         return c.role === filter;
@@ -648,7 +691,14 @@ export class AkanuEngine {
     if (!this.activeWorld) return [];
     const matched = this.activeWorld.characters
       .filter((c) => {
-        if (!c.isMilitary || c.health <= 0 || c.isHostile) return false;
+        if (
+          c.kingdomId !== this.currentParams.kingdomId ||
+          !c.isMilitary ||
+          c.health <= 0 ||
+          c.isHostile
+        ) {
+          return false;
+        }
         if (!filter || filter === 'all') return true;
         return c.militaryClass === filter;
       })
@@ -684,7 +734,14 @@ export class AkanuEngine {
     const list: CharacterEntity[] = [];
     for (const id of this.selectedEntityIds) {
       const ent = this.activeWorld.entitiesById.get(id);
-      if (ent && ent.category === 'character') list.push(ent);
+      if (
+        ent &&
+        ent.category === 'character' &&
+        ent.kingdomId === this.currentParams.kingdomId &&
+        ent.health > 0
+      ) {
+        list.push(ent);
+      }
     }
     return list;
   }
@@ -724,10 +781,14 @@ export class AkanuEngine {
 
   public adjustWorkforceAllocation(role: CivilianRole, delta: 1 | -1): void {
     if (!this.economyRuntime || role === 'Unemployed') return;
-    const chars = this.economyRuntime.characters;
+    const chars = this.economyRuntime.characters.filter(
+      (c) =>
+        c.kingdomId === this.currentParams.kingdomId &&
+        !c.isMilitary &&
+        c.health > 0,
+    );
 
     if (delta === 1) {
-      // Prefer assigning an Unemployed villager; otherwise reassign from most-populated other non-role
       let candidate = chars.find((c) => c.role === 'Unemployed');
       if (!candidate) {
         candidate = chars.find((c) => c.role !== role);
@@ -747,7 +808,7 @@ export class AkanuEngine {
 
   public cancelSelectedVillagersTask(): void {
     if (!this.economyRuntime) return;
-    const villagers = this.getSelectedVillagers();
+    const villagers = this.getSelectedVillagers().filter((v) => !v.isMilitary);
     for (const v of villagers) {
       cancelVillagerTask(v, this.economyRuntime);
     }
@@ -758,19 +819,40 @@ export class AkanuEngine {
     if (!this.economyRuntime || !this.activeWorld) return null;
     const target = this.activeWorld.entitiesById.get(targetId);
     if (!target) return null;
+    if (target.category === 'building' && target.kingdomId !== this.currentParams.kingdomId) {
+      return null;
+    }
 
-    let workers = this.getSelectedVillagers();
+    let workers = this.getSelectedVillagers().filter((v) => !v.isMilitary);
     if (workers.length === 0) {
-      // Pick closest Unemployed villager, or closest available Builder/Villager
-      const candidates = [...this.economyRuntime.characters].sort((a, b) => {
-        const aScore =
-          (a.role === 'Unemployed' ? -200 : a.role === 'Builder' && target.category === 'building' && target.constructionState !== 'completed' ? -120 : 0) +
-          Math.hypot(a.position.x - target.position.x, a.position.z - target.position.z);
-        const bScore =
-          (b.role === 'Unemployed' ? -200 : b.role === 'Builder' && target.category === 'building' && target.constructionState !== 'completed' ? -120 : 0) +
-          Math.hypot(b.position.x - target.position.x, b.position.z - target.position.z);
-        return aScore - bScore;
-      });
+      const candidates = this.economyRuntime.characters
+        .filter(
+          (c) =>
+            c.kingdomId === this.currentParams.kingdomId &&
+            !c.isMilitary &&
+            c.health > 0,
+        )
+        .sort((a, b) => {
+          const aScore =
+            (a.role === 'Unemployed'
+              ? -200
+              : a.role === 'Builder' &&
+                  target.category === 'building' &&
+                  target.constructionState !== 'completed'
+                ? -120
+                : 0) +
+            Math.hypot(a.position.x - target.position.x, a.position.z - target.position.z);
+          const bScore =
+            (b.role === 'Unemployed'
+              ? -200
+              : b.role === 'Builder' &&
+                  target.category === 'building' &&
+                  target.constructionState !== 'completed'
+                ? -120
+                : 0) +
+            Math.hypot(b.position.x - target.position.x, b.position.z - target.position.z);
+          return aScore - bScore;
+        });
       if (candidates.length > 0) {
         workers = [candidates[0]];
       }
@@ -790,7 +872,9 @@ export class AkanuEngine {
 
   public recruitUnitAtBuilding(buildingId: string, unitClass: MilitaryUnitClass): boolean {
     if (!this.economyRuntime || !this.activeWorld) return false;
-    const bld = this.activeWorld.buildings.find((b) => b.id === buildingId);
+    const bld = this.activeWorld.buildings.find(
+      (b) => b.id === buildingId && b.kingdomId === this.currentParams.kingdomId,
+    );
     if (!bld) return false;
 
     const ok = queueUnitRecruitment(unitClass, bld, this.economyRuntime);
@@ -802,7 +886,9 @@ export class AkanuEngine {
 
   public cancelRecruitment(buildingId: string, queueIndex: number): boolean {
     if (!this.economyRuntime || !this.activeWorld) return false;
-    const bld = this.activeWorld.buildings.find((b) => b.id === buildingId);
+    const bld = this.activeWorld.buildings.find(
+      (b) => b.id === buildingId && b.kingdomId === this.currentParams.kingdomId,
+    );
     if (!bld) return false;
 
     const ok = cancelQueuedUnitRecruitment(bld, queueIndex, this.economyRuntime);
@@ -814,7 +900,9 @@ export class AkanuEngine {
 
   public setBuildingRallyPoint(buildingId: string, x: number, z: number): void {
     if (!this.activeWorld) return;
-    const bld = this.activeWorld.buildings.find((b) => b.id === buildingId);
+    const bld = this.activeWorld.buildings.find(
+      (b) => b.id === buildingId && b.kingdomId === this.currentParams.kingdomId,
+    );
     if (bld) {
       bld.rallyPoint = { x, z };
       this.flushEconomyChangesImmediate();
@@ -1050,6 +1138,34 @@ export class AkanuEngine {
     focusCameraOnPoint(this.cameraRig, 0, 1.5, 38);
   }
 
+  public setCameraPreset(preset: 'settlement' | 'overview' | 'battle'): void {
+    if (preset === 'settlement') {
+      focusCameraOnPoint(this.cameraRig, 0, 1.5, 36);
+      return;
+    }
+    if (preset === 'overview') {
+      focusCameraOnPoint(this.cameraRig, 0, 1.5, 62);
+      return;
+    }
+    // 'battle': jump to an engaging soldier or player military vanguard if present
+    const activeUnit =
+      this.activeWorld?.characters.find(
+        (c) =>
+          c.kingdomId === this.currentParams.kingdomId &&
+          c.isMilitary &&
+          c.health > 0 &&
+          (c.combatState === 'engaging' || c.combatState === 'charging' || c.combatState === 'firing'),
+      ) ||
+      this.activeWorld?.characters.find(
+        (c) => c.kingdomId === this.currentParams.kingdomId && c.isMilitary && c.health > 0,
+      );
+    if (activeUnit) {
+      focusCameraOnPoint(this.cameraRig, activeUnit.position.x, activeUnit.position.z, 28);
+    } else {
+      focusCameraOnPoint(this.cameraRig, 0, 1.5, 36);
+    }
+  }
+
   public zoomStep(delta: number): void {
     zoomCamera(this.cameraRig, delta);
   }
@@ -1122,11 +1238,40 @@ export class AkanuEngine {
       },
       elapsedPlaySeconds: rt.elapsedSeconds,
       allEntities: this.getAllSelectableEntities(),
+      difficultyLevel: this.aiKingdomManager.difficulty,
     });
 
     if (this.selectedEntityIds.length > 0) {
       this.callbacks.onSelectionChange(this.getSelectedEntitiesSnapshot());
     }
+
+    // Sync adaptive soundtrack intensity to live settlement & conflict state
+    const rels = Object.values(
+      this.diplomacyState.relations[this.currentParams.kingdomId] || {},
+    );
+    const atWarCount = rels.filter((r) => r.state === 'at_war').length;
+    const playerMil = rt.characters.filter(
+      (c) => c.kingdomId === this.currentParams.kingdomId && c.isMilitary && c.health > 0,
+    );
+    const activeCombatEvents = playerMil.filter(
+      (c) => c.combatState === 'engaging' || c.combatState === 'firing' || c.combatState === 'charging',
+    ).length;
+    const queuedRecruits = rt.buildings
+      .filter((b) => b.kingdomId === this.currentParams.kingdomId)
+      .reduce((acc, b) => acc + (b.recruitmentQueue?.length ?? 0), 0);
+    const activeConstructionCount = rt.buildings.filter(
+      (b) => b.kingdomId === this.currentParams.kingdomId && b.constructionState === 'under_construction',
+    ).length;
+    const resolvedMood = resolveAdaptiveMusicMood({
+      isMenu: this.cameraTourMode,
+      activeCombatEvents,
+      atWarCount,
+      militaryUnitCount: playerMil.length,
+      queuedRecruits,
+      activeConstructionCount,
+      lowFoodAlert: rt.population.foodSatisfaction < 45,
+    });
+    soundEngine.setMusicMood(resolvedMood, this.currentParams.regionId);
   }
 
   private flushEconomyChangesImmediate(): void {
@@ -1137,6 +1282,13 @@ export class AkanuEngine {
   private syncDirtyWorldVisuals(): void {
     if (!this.economyRuntime || !this.activeWorld) return;
     const rt = this.economyRuntime;
+
+    if (rt.newlySpawnedBuildings.length > 0) {
+      for (const bld of rt.newlySpawnedBuildings) {
+        this.activeWorld.addBuildingEntity(bld);
+      }
+      rt.newlySpawnedBuildings.length = 0;
+    }
 
     if (rt.dirtyBuildingIds.size > 0) {
       for (const bId of rt.dirtyBuildingIds) {
@@ -1245,16 +1397,45 @@ export class AkanuEngine {
     if (!this.isPaused && this.activeWorld && this.economyRuntime) {
       this.elapsedSeconds += frameDt;
       this.activeWorld.updateWater(this.elapsedSeconds);
+      this.activeWorld.updateEnvironment(this.elapsedSeconds, frameDt);
 
       // Sub-step economy & military simulation in <= 0.05s slices so 10Hz software-WebGL keeps 1.0x real-time speed safely
       let rem = frameDt;
+      let frameCombatCount = 0;
+      let hadWarEvent = false;
+      let hadPeaceEvent = false;
       while (rem > 1e-5) {
         const slice = Math.min(rem, 0.05);
+        const combatEvents: WorldEventItem[] = [];
         stepEconomyAndVillagers(this.economyRuntime, slice);
-        stepMilitaryRecruitmentQueues(slice, this.economyRuntime, this.militaryState);
-        stepMilitaryUnits(slice, this.economyRuntime, this.militaryState);
-        stepProjectiles(slice, this.militaryState, this.economyRuntime);
-        stepMilitaryUpkeep(slice, this.economyRuntime, this.militaryState);
+        stepMilitaryRecruitmentQueues(
+          slice,
+          this.economyRuntime,
+          this.militaryState,
+          this.aiKingdomManager,
+        );
+        stepMilitaryUnits(
+          slice,
+          this.economyRuntime,
+          this.militaryState,
+          this.diplomacyState,
+          this.aiKingdomManager,
+          combatEvents,
+        );
+        stepProjectiles(
+          slice,
+          this.militaryState,
+          this.economyRuntime,
+          this.diplomacyState,
+          this.aiKingdomManager,
+          combatEvents,
+        );
+        stepMilitaryUpkeep(
+          slice,
+          this.economyRuntime,
+          this.militaryState,
+          this.aiKingdomManager,
+        );
 
         const aiEvents = stepAIKingdomManager(
           slice,
@@ -1265,22 +1446,59 @@ export class AkanuEngine {
           region,
           this.currentParams.seed,
         );
-        const dipEvents = stepDiplomacy(slice, this.diplomacyState);
-        for (const e of [...aiEvents, ...dipEvents]) {
+        const dipEvents = stepDiplomacy(slice, this.diplomacyState, this.economyRuntime);
+        for (const e of [...combatEvents, ...aiEvents, ...dipEvents]) {
           pushWorldEvent(this.worldEventState, e);
+          if (e.kind === 'military') frameCombatCount++;
+          if (e.kind === 'diplomacy' && /war/i.test(e.title)) hadWarEvent = true;
+          if (e.kind === 'diplomacy' && /peace|treaty|alliance/i.test(e.title)) hadPeaceEvent = true;
         }
         rem -= slice;
       }
+
+      if (!this.cameraTourMode) {
+        if (hadWarEvent) soundEngine.playAlert('war');
+        else if (hadPeaceEvent) soundEngine.playAlert('peace');
+        if (frameCombatCount > 0) soundEngine.playCombatHit('sword');
+      }
+
+      const hadCompletedBuilding = [...this.economyRuntime.dirtyBuildingIds].some((bId) => {
+        const b = this.economyRuntime?.buildings.find((item) => item.id === bId);
+        return b && b.kingdomId === this.currentParams.kingdomId && b.constructionState === 'completed';
+      });
+      if (!this.cameraTourMode && hadCompletedBuilding) {
+        soundEngine.playAlert('complete');
+      }
+
       this.syncDirtyWorldVisuals();
       this.syncProjectilesVisual();
 
       // Animate all articulated 3D character rigs (tools, cargo bundles, chopping/mining/building/walking)
+      let workerSfxKind: 'chop' | 'mine' | 'build' | null = null;
       for (let i = 0; i < this.activeWorld.characterRigs.length; i++) {
         const rig = this.activeWorld.characterRigs[i];
         const entity = this.activeWorld.characters[i];
         if (rig && entity) {
           updateProceduralCharacterAnimation(rig, entity);
+          if (
+            !this.cameraTourMode &&
+            entity.kingdomId === this.currentParams.kingdomId &&
+            Math.hypot(entity.position.x - this.cameraRig.targetX, entity.position.z - this.cameraRig.targetZ) < 28
+          ) {
+            if (entity.animationState === 'chopping') workerSfxKind = 'chop';
+            else if (entity.animationState === 'mining') workerSfxKind = 'mine';
+            else if (entity.animationState === 'building') workerSfxKind = 'build';
+          }
+          if (
+            (entity.animationState === 'attacking_melee' || entity.animationState === 'attacking_spear') &&
+            Math.sin(entity.gaitPhase) > 0.94
+          ) {
+            this.activeWorld.spawnVfxBurst(entity.position.x, entity.position.y + 1.1, entity.position.z, 'spark');
+          }
         }
+      }
+      if (workerSfxKind && Math.random() < 0.08) {
+        soundEngine.playWorkAction(workerSfxKind);
       }
 
       if (this.moveMarkerTimer > 0) {
@@ -1323,6 +1541,10 @@ export class AkanuEngine {
     this.sunLight.position.set(pose.lookX + 46, pose.lookY + 66, pose.lookZ + 34);
     this.sunLight.target.position.set(pose.lookX, pose.lookY, pose.lookZ);
     this.sunLight.target.updateMatrixWorld();
+
+    this.rimLight.position.set(pose.lookX - 42, pose.lookY + 34, pose.lookZ - 36);
+    this.rimLight.target.position.set(pose.lookX, pose.lookY, pose.lookZ);
+    this.rimLight.target.updateMatrixWorld();
 
     this.renderer.render(this.scene, this.camera);
     this.scheduleNextFrame();
@@ -1704,7 +1926,38 @@ export class AkanuEngine {
     canvas.addEventListener('touchcancel', this.onTouchEnd);
   }
 
-  // Phase 4 Diplomacy & AI Kingdom Public API Methods
+  // Phase 4 Diplomacy, Intelligence & Difficulty Public API Methods
+  public setAIDifficulty(difficulty: AIDifficulty): void {
+    this.aiKingdomManager.difficulty = difficulty;
+    this.flushEconomyChangesImmediate();
+  }
+
+  public getAIDifficulty(): AIDifficulty {
+    return this.aiKingdomManager.difficulty;
+  }
+
+  public dispatchDiplomaticEnvoy(targetId: KingdomId, goldAmount = 100): { ok: boolean; reason: string } {
+    if (!this.economyRuntime) return { ok: false, reason: 'World not loaded.' };
+    const res = sendDiplomaticGift(
+      this.diplomacyState,
+      this.economyRuntime,
+      this.currentParams.kingdomId,
+      targetId,
+      goldAmount,
+    );
+    if (res.ok) {
+      if (res.event) pushWorldEvent(this.worldEventState, res.event);
+      updateAllKingdomIntelligence(
+        this.aiKingdomManager,
+        this.economyRuntime,
+        this.diplomacyState,
+        this.worldEventState.events,
+      );
+      this.flushEconomyChangesImmediate();
+    }
+    return { ok: res.ok, reason: res.reason };
+  }
+
   public proposeDiplomaticTreaty(
     targetId: KingdomId,
     kind: TreatyKind,
@@ -1721,6 +1974,9 @@ export class AkanuEngine {
         this.currentParams.kingdomId,
         targetId,
         kind,
+        300,
+        undefined,
+        this.economyRuntime?.elapsedSeconds ?? 0,
       );
       pushWorldEvent(this.worldEventState, evt);
       this.flushEconomyChangesImmediate();
@@ -1728,16 +1984,38 @@ export class AkanuEngine {
     return result;
   }
 
-  public declareWar(targetId: KingdomId): void {
-    const res = updateDiplomaticScore(
+  public proposePeace(targetId: KingdomId): { accepted: boolean; reason: string } {
+    const myUnits = this.economyRuntime?.characters.filter(
+      (c) => c.kingdomId === this.currentParams.kingdomId && c.isMilitary && c.health > 0,
+    ) ?? [];
+    const targetUnits = this.economyRuntime?.characters.filter(
+      (c) => c.kingdomId === targetId && c.isMilitary && c.health > 0,
+    ) ?? [];
+    const res = proposePeaceTreaty(
       this.diplomacyState,
       this.currentParams.kingdomId,
       targetId,
-      -80,
-      'a formal declaration of war',
+      estimateMilitaryPower(myUnits),
+      estimateMilitaryPower(targetUnits),
+      this.economyRuntime?.elapsedSeconds ?? 0,
     );
-    if (res.event) {
+    if (res.accepted && res.event) {
       pushWorldEvent(this.worldEventState, res.event);
+      this.flushEconomyChangesImmediate();
+    }
+    return { accepted: res.accepted, reason: res.reason };
+  }
+
+  public declareWar(targetId: KingdomId): void {
+    const evt = declareWarBetweenKingdoms(
+      this.diplomacyState,
+      this.currentParams.kingdomId,
+      targetId,
+      'sovereign war declaration',
+      this.economyRuntime?.elapsedSeconds ?? 0,
+    );
+    if (evt) {
+      pushWorldEvent(this.worldEventState, evt);
     }
     this.flushEconomyChangesImmediate();
   }

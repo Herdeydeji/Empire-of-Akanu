@@ -11,6 +11,7 @@ import {
   defaultPersistence,
 } from './engine/persistence/saveSystem';
 import {
+  AIDifficulty,
   EconomyNotification,
   GameMode,
   GameSettings,
@@ -114,6 +115,7 @@ export default function App() {
           progressionStage: snap.progressionStage,
           economyStats: snap.economyStats,
           elapsedPlaySeconds: snap.elapsedPlaySeconds,
+          difficultyLevel: snap.difficultyLevel ?? prev.difficultyLevel,
         }));
         setAllEntities(snap.allEntities);
       },
@@ -194,6 +196,7 @@ export default function App() {
       playerKingdomName: string;
       rulerName: string;
       gameMode: GameMode;
+      difficultyLevel: AIDifficulty;
       sandboxAbundantResources: boolean;
       worldSeed: number;
     }) => {
@@ -203,6 +206,7 @@ export default function App() {
         rulerName: params.rulerName,
         regionId: params.regionId,
         gameMode: params.gameMode,
+        difficultyLevel: params.difficultyLevel,
         sandboxAbundantResources: params.sandboxAbundantResources,
         worldSeed: params.worldSeed,
         settings,
@@ -311,6 +315,7 @@ export default function App() {
         rulerName: activeGame.rulerName,
         regionId,
         gameMode: activeGame.gameMode,
+        difficultyLevel: activeGame.difficultyLevel ?? 'normal',
         sandboxAbundantResources: activeGame.capacities.wood > 1100,
         worldSeed: activeGame.worldSeed,
         settings,
@@ -334,6 +339,12 @@ export default function App() {
     },
     [activeGame, settings],
   );
+
+  const handleChangeDifficulty = useCallback((difficulty: AIDifficulty) => {
+    soundEngine.playUiClick(1.06);
+    engineRef.current?.setAIDifficulty(difficulty);
+    setActiveGame((prev) => ({ ...prev, difficultyLevel: difficulty }));
+  }, []);
 
   // Global Game Shell Keyboard Shortcuts
   useEffect(() => {
@@ -392,7 +403,7 @@ export default function App() {
   ]);
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-[#120e0a]">
+    <div className="relative w-full h-full overflow-hidden bg-[#171512]">
       {/* Isolated Full-Viewport 3D WebGL Canvas Container */}
       <div
         ref={canvasMountRef}
@@ -457,6 +468,10 @@ export default function App() {
           }}
           onCameraZoom={(delta) => engineRef.current?.zoomStep(delta)}
           onCameraRotate={(deltaYaw) => engineRef.current?.rotateStep(deltaYaw)}
+          onCameraPreset={(preset) => {
+            soundEngine.playUiClick(1.04);
+            engineRef.current?.setCameraPreset(preset);
+          }}
           onAssignOccupation={(role, pref) => {
             soundEngine.playUiClick(1.1);
             engineRef.current?.assignSelectedVillagersOccupation(role, pref);
@@ -543,6 +558,18 @@ export default function App() {
               reason: 'Engine offline',
             }
           }
+          onSendEnvoy={(targetId) =>
+            engineRef.current?.dispatchDiplomaticEnvoy(targetId, 100) || {
+              ok: false,
+              reason: 'Engine offline',
+            }
+          }
+          onProposePeace={(targetId) =>
+            engineRef.current?.proposePeace(targetId) || {
+              accepted: false,
+              reason: 'Engine offline',
+            }
+          }
           onDeclareWar={(targetId) => engineRef.current?.declareWar(targetId)}
         />
       )}
@@ -552,6 +579,7 @@ export default function App() {
         <PauseModal
           activeSave={activeGame}
           saveStatusMessage={saveToast}
+          onChangeDifficulty={handleChangeDifficulty}
           onResume={() => {
             soundEngine.playUiClick(1.05);
             engineRef.current?.setPaused(false);
