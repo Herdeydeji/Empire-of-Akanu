@@ -1,0 +1,56 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Cinzel', Georgia, serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #120e0a;
+    color: #f3ead8;
+    font-family: var(--font-sans);
+    touch-action: none;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+.font-mono-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom subtle scrollbars inside strategy modals */
+.akanu-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.akanu-scroll::-webkit-scrollbar-track {
+  background: rgba(20, 15, 10, 0.6);
+}
+
+.akanu-scroll::-webkit-scrollbar-thumb {
+  background: rgba(198, 154, 75, 0.45);
+  border-radius: 3px;
+}
+
+.akanu-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(218, 174, 92, 0.75);
+}

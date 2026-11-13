@@ -1,0 +1,1646 @@
+PROJECT: EMPIRES OF AKANU
+
+MASTER DEVELOPMENT DIRECTIVE
+
+You are an autonomous senior game development team consisting of:
+
+- Principal Game Architect.
+- Senior Full-Stack Engineer.
+- Senior 3D Graphics Engineer.
+- Technical Character Artist.
+- Procedural Environment Artist.
+- Real-Time Strategy Game Designer.
+- Game AI Engineer.
+- Multiplayer Networking Engineer.
+- Backend and Database Architect.
+- UI/UX Designer.
+- Game Animation Engineer.
+- Audio Engineer.
+- Performance and Quality Assurance Engineer.
+
+Your responsibility is to design, architect, implement, integrate, test and progressively develop a complete browser-based 3D real-time strategy and empire-building game called Empires of Akanu.
+
+You are not merely generating a demonstration, landing page, visual mockup or static game interface.
+
+You are building an actual interactive game with persistent gameplay systems, functional 3D environments, controllable characters, resource management, construction, military operations, intelligent AI kingdoms and multiplayer capabilities.
+
+You must take responsibility for the entire development process using the coding environment, models, APIs, packages, libraries and asset-generation capabilities genuinely available to you.
+
+Do not require the user to manually create 3D models, textures, animations, music, sound effects or other game assets using external applications.
+
+Use procedural code-generated assets and other genuinely available generation capabilities.
+
+Do not claim that a feature is implemented until it has been implemented and tested.
+
+---
+
+PART 1: GAME IDENTITY AND VISION
+
+1.1 Game identity
+
+Game name: Empires of Akanu.
+
+Tagline: Rise. Conquer. Rule.
+
+Genre:
+
+- Real-time strategy (RTS).
+- Historical-inspired empire building.
+- Kingdom management.
+- Economic simulation.
+- Military strategy.
+- Diplomacy and territorial conquest.
+- Multiplayer strategy.
+
+Primary platforms:
+
+- Desktop browsers.
+- Android browsers.
+- Tablets.
+
+The game should be installable as a Progressive Web App (PWA), where supported.
+
+1.2 Core vision
+
+Empires of Akanu is a premium African-inspired historical strategy game in which players establish kingdoms, develop settlements, manage populations, gather resources, construct cities, recruit armies, engage in diplomacy and wage wars against rival kingdoms.
+
+The game combines two major gameplay experiences:
+
+1. Persistent kingdom management inspired by games such as Rise of Kingdoms.
+2. Direct real-time military strategy inspired by Age of Empires.
+
+The player must be able to develop a small settlement into a powerful kingdom and eventually a continental empire.
+
+The game must make players feel that they are governing a living civilisation rather than simply clicking buttons to increase numbers.
+
+Every important action should have consequences in the game world.
+
+Villagers should work, soldiers should move, buildings should be constructed, markets should operate, armies should march and kingdoms should respond to political and military developments.
+
+1.3 Artistic and cultural direction
+
+The game is inspired by the historical diversity, architecture, clothing, military traditions, landscapes and material cultures of different African societies.
+
+Africa must not be represented as one homogeneous civilisation.
+
+Different kingdoms must have distinguishable:
+
+- Architecture.
+- Clothing.
+- Military equipment.
+- Hairstyles.
+- Decorations.
+- Settlement designs.
+- Cultural motifs.
+- Environmental characteristics.
+- Visual identities.
+
+Use culturally thoughtful historical inspiration without falsely presenting fictional kingdoms as actual historical states.
+
+The world and its kingdoms are fictional.
+
+---
+
+PART 2: THE FIVE FOUNDING KINGDOMS
+
+Implement five founding kingdoms with distinct identities, economic strengths, military specialisations and architectural styles.
+
+All kingdoms must remain competitively viable.
+
+Specialisation should create strategic advantages rather than make one kingdom universally superior.
+
+2.1 ORU — Masters of Infantry and Defence
+
+Primary strengths:
+
+- Infantry.
+- Spearmen.
+- Defensive warfare.
+- Fortifications.
+- Defensive formations.
+
+Unique characteristics:
+
+- Strong infantry units.
+- Improved defensive structures.
+- Advanced walls and fortifications.
+- Bonuses when defending friendly territory.
+
+Visual identity:
+
+- Strong traditional architectural forms.
+- Distinctive military armour.
+- Defensive shields.
+- Heavy infantry equipment.
+- Recognisable royal and military clothing.
+
+2.2 ZAMBARA — Masters of Cavalry and Mobility
+
+Primary strengths:
+
+- Cavalry.
+- Mounted warriors.
+- Scouting.
+- Rapid deployment.
+- Battlefield mobility.
+
+Unique characteristics:
+
+- Improved cavalry recruitment.
+- Faster mounted units.
+- Superior scouting capabilities.
+- Bonuses for flanking and rapid attacks.
+
+Visual identity:
+
+- Distinctive riding equipment.
+- Mounted military traditions.
+- Recognisable cavalry armour.
+- Architecture reflecting the kingdom's environmental and cultural identity.
+
+2.3 KEMETRA — Masters of Engineering and Technology
+
+Primary strengths:
+
+- Engineering.
+- Military technology.
+- Siege equipment.
+- Construction.
+- Research.
+
+Unique characteristics:
+
+- Advanced engineering workshops.
+- Improved siege equipment.
+- Construction efficiency.
+- Research advantages.
+
+Visual identity:
+
+- Elaborate architectural structures.
+- Distinctive engineering equipment.
+- Advanced construction techniques.
+- Detailed workshops and military installations.
+
+2.4 ASEKA — Masters of Trade and Economic Development
+
+Primary strengths:
+
+- Trade.
+- Commerce.
+- Resource production.
+- Marketplaces.
+- Economic diplomacy.
+
+Unique characteristics:
+
+- Improved trading efficiency.
+- Advanced marketplaces.
+- Economic advantages.
+- Stronger commercial relationships.
+
+Visual identity:
+
+- Distinctive marketplaces.
+- Elaborate residential compounds.
+- Commercial districts.
+- Trading equipment and merchant clothing.
+
+2.5 NAMBARA — Masters of Archery and Wilderness Warfare
+
+Primary strengths:
+
+- Archery.
+- Scouting.
+- Forest warfare.
+- Ambushes.
+- Wilderness survival.
+
+Unique characteristics:
+
+- Improved archers.
+- Superior reconnaissance.
+- Forest movement advantages.
+- Effective ambush tactics.
+
+Visual identity:
+
+- Distinctive archery equipment.
+- Detailed bows and arrows.
+- Wilderness-inspired military clothing.
+- Settlements adapted to forest environments.
+
+---
+
+PART 3: THE GAME WORLD
+
+3.1 Shared continental world
+
+Create a large African-inspired fictional continent containing multiple geographical regions, kingdoms, natural resources, settlements, trade routes and military territories.
+
+The world must be designed to support expansion.
+
+Avoid generating a tiny decorative map that cannot accommodate meaningful gameplay.
+
+The world should support:
+
+- Multiple player kingdoms.
+- AI-controlled kingdoms.
+- Independent settlements.
+- Resource territories.
+- Trade routes.
+- Military territories.
+- Neutral regions.
+- Strategic geographical locations.
+
+Implement world generation using reusable procedural systems.
+
+3.2 Geographical regions
+
+Create five major geographical regions.
+
+Golden Savannah
+
+- Expansive grasslands.
+- Acacia-inspired trees.
+- Rocky outcrops.
+- Agricultural land.
+- Natural settlements.
+- Wildlife and grazing environments.
+
+Great Forests
+
+- Dense vegetation.
+- Different tree species and canopy structures.
+- Forest clearings.
+- Natural pathways.
+- Rivers and wildlife.
+- Ambush opportunities.
+
+Northern Highlands
+
+- Mountains.
+- Hills.
+- Rocky formations.
+- Valleys.
+- Mountain passes.
+- Defensive settlement locations.
+
+Riverlands
+
+- Rivers.
+- Fertile agricultural land.
+- Wetlands.
+- Fishing locations.
+- River settlements.
+- Water transportation opportunities where implemented.
+
+Coastal Territories
+
+- Beaches.
+- Coastal vegetation.
+- Natural harbours.
+- Fishing settlements.
+- Coastal trading locations.
+- Maritime opportunities for future expansion.
+
+Each region must have distinctive terrain, vegetation, lighting, environmental effects and strategic characteristics.
+
+3.3 Dynamic world
+
+The world should eventually support:
+
+- Day and night cycles.
+- Weather variations.
+- Seasonal environmental changes.
+- Environmental resource regeneration.
+- Dynamic settlements.
+- Changing territorial ownership.
+
+Environmental systems must affect gameplay where appropriate.
+
+For example:
+
+- Terrain should affect movement.
+- Forests should influence visibility and ambushes.
+- Mountains should influence military movement.
+- Rivers should affect settlement placement and transportation.
+- Weather should influence selected military and economic activities.
+
+Do not introduce expensive environmental simulation without a clear gameplay benefit.
+
+---
+
+PART 4: 3D GRAPHICS AND CAMERA SYSTEM
+
+4.1 Rendering technology
+
+Use a suitable modern WebGL/WebGPU-compatible architecture.
+
+Preferred technology:
+
+- React.
+- TypeScript.
+- Three.js.
+- React Three Fiber.
+- Drei.
+
+Select additional libraries only when technically justified.
+
+The game must render genuine interactive 3D environments.
+
+Do not substitute 3D gameplay with static illustrations or 2D backgrounds.
+
+4.2 Camera system
+
+Implement a professional RTS camera.
+
+Default camera:
+
+- Elevated isometric-style perspective.
+- Strategic overview of the kingdom.
+- Clear visibility of buildings, units and terrain.
+
+Camera controls:
+
+- Full horizontal rotation.
+- Smooth zoom in and out.
+- Smooth panning.
+- Terrain-following camera boundaries where appropriate.
+- Camera focus on selected buildings and military units.
+- Camera movement using keyboard and mouse.
+- Touch-based camera movement on mobile.
+
+Ensure camera controls do not conflict with unit selection or building placement.
+
+4.3 Visual quality
+
+The game should use a premium stylized-realistic art direction.
+
+Characters and environments must maintain a consistent visual standard.
+
+Avoid:
+
+- Primitive-looking humanoid models.
+- Flat and lifeless materials.
+- Repetitive buildings.
+- Generic environment assets.
+- Poorly proportioned characters.
+- Excessively simplistic architecture.
+- Unnecessary visual clutter.
+
+Use:
+
+- Detailed procedural geometry.
+- Carefully constructed materials.
+- Appropriate textures.
+- Natural lighting.
+- High-quality shadows.
+- Ambient occlusion where practical.
+- Environmental variation.
+- Detailed building structures.
+- Distinctive character silhouettes.
+
+The upgraded character and environment prototypes establish the intended production direction.
+
+If their source code is available in the current project context, inspect and reuse suitable components. Otherwise, reproduce the validated procedural techniques. Do not assume that separate AI Studio projects automatically share files.
+
+4.4 Graphics scalability
+
+Implement graphics settings appropriate for different devices.
+
+At minimum:
+
+- Low.
+- Medium.
+- High.
+
+Automatically select a reasonable initial quality level based on device capabilities where practical.
+
+Prioritise stable performance on low-end Android devices without making the PC experience unnecessarily simplistic.
+
+---
+
+PART 5: CHARACTERS, VILLAGERS AND ANIMATIONS
+
+5.1 Character production system
+
+Build a reusable procedural 3D character production system.
+
+It must support:
+
+- Different body types.
+- Different faces.
+- Hairstyles.
+- Clothing.
+- Armour.
+- Headwear.
+- Accessories.
+- Weapons.
+- Kingdom-specific appearances.
+- Civilian and military variations.
+
+Characters should have natural proportions and professionally constructed clothing.
+
+Avoid simply assembling primitive shapes into humanoid figures.
+
+Use appropriate custom geometry, surface construction, material separation and procedural detailing.
+
+5.2 Character categories
+
+Civilian characters:
+
+- Farmers.
+- Builders.
+- Woodcutters.
+- Miners.
+- Traders.
+- Craftspeople.
+- Hunters.
+- Fishermen.
+
+Military characters:
+
+- Infantry.
+- Spearmen.
+- Archers.
+- Cavalry.
+- Elite royal guards.
+- Scouts.
+- Siege engineers.
+
+Leadership:
+
+- Kings.
+- Queens.
+- Royal commanders.
+- Military generals.
+- Diplomats.
+
+Each category should have appropriate visual identity, equipment and animations.
+
+5.3 Animation system
+
+Implement a reusable animation architecture.
+
+Required animation states:
+
+- Idle.
+- Walking.
+- Running.
+- Gathering.
+- Farming.
+- Building.
+- Carrying resources.
+- Attacking.
+- Defending.
+- Dying.
+- Victory.
+
+Animations must be coordinated with the actual gameplay state.
+
+For example:
+
+- A farmer should perform farming activities.
+- A builder should perform construction activities.
+- A woodcutter should interact with trees.
+- A soldier should transition between movement and combat animations.
+
+Avoid characters sliding across the terrain without corresponding movement animation.
+
+5.4 Character lifecycle
+
+Characters must be represented as actual game entities with:
+
+- Unique identifiers.
+- Ownership.
+- Health.
+- Unit type.
+- Position.
+- Movement state.
+- Current activity.
+- Selected status.
+- Relevant gameplay attributes.
+
+Do not treat characters as decorative objects.
+
+---
+
+PART 6: VILLAGE AND KINGDOM MANAGEMENT
+
+6.1 Settlement development
+
+The player begins with a small settlement.
+
+The settlement gradually develops through six progression stages:
+
+1. Village.
+2. Settlement.
+3. Town.
+4. Fortified City.
+5. Kingdom.
+6. Empire.
+
+Each stage should unlock new structures, military capabilities, economic opportunities and management systems.
+
+Progression must be based on meaningful requirements rather than arbitrary button presses.
+
+6.2 Building categories
+
+Residential buildings
+
+- Houses.
+- Family compounds.
+- Residential districts.
+
+Economic buildings
+
+- Farms.
+- Granaries.
+- Marketplaces.
+- Warehouses.
+- Mines.
+- Blacksmith workshops.
+- Fishing facilities.
+- Hunting facilities.
+
+Military buildings
+
+- Barracks.
+- Archery grounds.
+- Cavalry stables.
+- Weapon workshops.
+- Military training grounds.
+- Siege workshops.
+
+Royal buildings
+
+- Palace.
+- Council chambers.
+- Treasury.
+- Ceremonial grounds.
+
+Defensive buildings
+
+- Walls.
+- Gates.
+- Watchtowers.
+- Fortresses.
+- Defensive installations.
+
+Buildings must have meaningful functions.
+
+A barracks should enable military recruitment.
+
+A marketplace should support trade.
+
+A warehouse should affect resource storage.
+
+A farm should produce food.
+
+A palace should provide kingdom-level administrative functions.
+
+6.3 Building placement
+
+Implement functional building placement.
+
+Players should be able to:
+
+- Select a building from the construction interface.
+- Preview its position in the world.
+- Rotate it.
+- Place it on valid terrain.
+- Cancel placement.
+- See construction costs.
+- See invalid placement locations.
+- Construct and upgrade buildings.
+
+Placement must respect terrain, collisions, ownership and construction requirements.
+
+Buildings must physically appear in the 3D world.
+
+6.4 Construction process
+
+Buildings should not instantly materialise without explanation.
+
+Implement construction states:
+
+- Planned.
+- Under construction.
+- Completed.
+- Damaged.
+- Destroyed.
+
+Builders should participate in construction activities.
+
+Construction progress should depend on the game's time and economic rules.
+
+---
+
+PART 7: ECONOMIC AND RESOURCE SIMULATION
+
+7.1 Core resources
+
+Implement five primary resources:
+
+1. Food.
+2. Wood.
+3. Stone.
+4. Iron.
+5. Gold.
+
+Each resource must have:
+
+- Quantity.
+- Storage capacity.
+- Production rate.
+- Consumption rate.
+- Collection rules.
+- Ownership.
+- Relevant resource locations.
+
+7.2 Resource production
+
+Food:
+
+- Farming.
+- Hunting.
+- Fishing.
+
+Wood:
+
+- Forestry.
+- Woodcutting.
+
+Stone:
+
+- Stone deposits.
+- Quarrying.
+
+Iron:
+
+- Iron deposits.
+- Mining.
+- Processing.
+
+Gold:
+
+- Gold deposits.
+- Mining.
+- Trading.
+
+7.3 Villager employment
+
+Villagers must have meaningful occupations.
+
+The player should be able to:
+
+- Select villagers.
+- Assign work.
+- Reassign occupations.
+- Move villagers.
+- Assign gathering locations.
+- Manage workforce distribution.
+
+Implement resource-gathering behaviour.
+
+For example, assigning a villager to cut wood should cause the villager to travel to a suitable tree, perform a gathering animation, collect wood and transport it to an appropriate storage location.
+
+Do not merely increase resource counters when a button is clicked.
+
+7.4 Population management
+
+Implement:
+
+- Population count.
+- Housing capacity.
+- Food consumption.
+- Population growth.
+- Workforce availability.
+- Recruitment requirements.
+- Population-related limitations.
+
+Population growth should depend on appropriate economic and settlement conditions.
+
+---
+
+PART 8: MILITARY AND REAL-TIME COMBAT
+
+This is one of the most important systems in the game.
+
+Implement an actual real-time military system.
+
+8.1 Military unit classes
+
+Infantry:
+
+- General infantry.
+- Spearmen.
+- Elite infantry.
+
+Ranged:
+
+- Archers.
+- Advanced archers.
+
+Cavalry:
+
+- Light cavalry.
+- Heavy cavalry.
+
+Specialised:
+
+- Scouts.
+- Royal guards.
+- Siege engineers.
+
+Siege:
+
+- Battering rams.
+- Siege towers.
+- Catapults and other historically inspired siege equipment.
+
+All units must have distinct statistics, visual identities and tactical roles.
+
+8.2 Direct unit control
+
+The player must be able to:
+
+- Select individual units.
+- Select multiple units.
+- Drag-select groups.
+- Issue movement commands.
+- Issue attack commands.
+- Set defensive positions.
+- Order units to follow targets.
+- Assign formations.
+- Control military groups.
+
+Support mouse and keyboard on desktop and touch controls on mobile.
+
+8.3 Group formations
+
+Implement tactical formations such as:
+
+- Line.
+- Defensive formation.
+- Wedge.
+- Square.
+- Flanking formation.
+
+Formations must influence positioning and combat effectiveness.
+
+8.4 Combat mechanics
+
+Combat must account for:
+
+- Attack strength.
+- Defence.
+- Health.
+- Range.
+- Movement speed.
+- Unit counters.
+- Terrain.
+- Positioning.
+- Morale.
+- Commander bonuses.
+- Formation.
+- Reinforcements.
+
+Different units must have meaningful counters.
+
+For example:
+
+- Spearmen should be effective against cavalry.
+- Archers should attack from range.
+- Infantry should perform differently from mounted units.
+- Siege weapons should be effective against fortifications.
+
+Combat should be visually represented by actual unit movement, attacks, defensive actions, damage and destruction.
+
+8.5 Hybrid combat control
+
+Support two ways of managing battles:
+
+A. Direct control:
+The player controls units and formations in real time.
+
+B. Delegated command:
+The player assigns a commander and tactical instructions, allowing the battle to proceed under AI control.
+
+The player must be able to switch between strategic management and direct battlefield control where appropriate.
+
+8.6 Morale
+
+Implement a morale system.
+
+Morale can be influenced by:
+
+- Casualties.
+- Commander presence.
+- Formation.
+- Surrounding enemies.
+- Reinforcements.
+- Defensive positions.
+- Battlefield conditions.
+
+Low morale should affect combat behaviour.
+
+---
+
+PART 9: KINGDOM AI
+
+AI kingdoms must behave as independent strategic entities.
+
+They must not exist merely as static buildings or decorative settlements.
+
+9.1 AI kingdom behaviour
+
+AI kingdoms should be able to:
+
+- Establish settlements.
+- Construct buildings.
+- Gather resources.
+- Manage populations.
+- Recruit armies.
+- Research technologies.
+- Expand territory.
+- Defend settlements.
+- Attack enemies.
+- Establish alliances.
+- Negotiate agreements.
+- Trade.
+- Declare war.
+- Seek peace.
+
+9.2 Strategic decision-making
+
+Develop a modular AI decision-making system.
+
+AI decisions should consider:
+
+- Available resources.
+- Population.
+- Military strength.
+- Territorial position.
+- Threats.
+- Economic conditions.
+- Diplomatic relationships.
+- Strategic opportunities.
+
+Avoid giving AI kingdoms unlimited resources or unfair advantages.
+
+They must operate under the same fundamental game rules as players.
+
+9.3 AI difficulty
+
+Provide configurable difficulty levels.
+
+- Easy.
+- Normal.
+- Hard.
+
+Difficulty should influence strategic intelligence and decision-making, not simply give AI unlimited resources.
+
+---
+
+PART 10: DIPLOMACY AND TERRITORIAL POLITICS
+
+Implement a functional diplomacy system.
+
+Diplomatic actions:
+
+- Trade agreements.
+- Non-aggression treaties.
+- Military alliances.
+- Territorial negotiations.
+- Tribute.
+- Peace agreements.
+- War declarations.
+
+Diplomatic relationships should have states such as:
+
+- Neutral.
+- Friendly.
+- Allied.
+- Hostile.
+- At war.
+
+AI kingdoms must respond to diplomatic actions based on their strategic interests and relationships.
+
+Implement territorial ownership and expansion.
+
+Territories should have strategic and economic value.
+
+Conquest must have consequences for the player and affected kingdoms.
+
+---
+
+PART 11: TECHNOLOGY AND PROGRESSION
+
+Implement a technology and research system.
+
+Research categories should include:
+
+- Agriculture.
+- Construction.
+- Mining.
+- Military training.
+- Weapon development.
+- Trade.
+- Engineering.
+- Defence.
+
+Research should unlock meaningful improvements.
+
+Examples:
+
+- Improved farming increases food production.
+- Better construction improves building efficiency.
+- Military research unlocks advanced units.
+- Engineering unlocks advanced siege equipment.
+- Trade research improves commercial activity.
+
+Research must require appropriate resources, buildings and progression stages.
+
+---
+
+PART 12: GAME MODES
+
+Build the architecture to support the following modes.
+
+12.1 Campaign
+
+A structured single-player experience with:
+
+- Missions.
+- Objectives.
+- Kingdom development.
+- Military conflicts.
+- Diplomatic decisions.
+- Narrative progression.
+
+Campaign missions should introduce mechanics progressively.
+
+12.2 Kingdom Sandbox
+
+Allow players to establish and develop kingdoms with configurable gameplay conditions.
+
+12.3 AI Kingdoms
+
+Allow players to compete or cooperate with independently controlled kingdoms.
+
+12.4 Multiplayer
+
+Support multiple players in the same persistent world.
+
+Players should be able to:
+
+- Establish kingdoms.
+- Build settlements.
+- Trade.
+- Form alliances.
+- Wage wars.
+- Share territories.
+- Compete for resources.
+
+12.5 Alliance Warfare
+
+Support coordinated military activities between allied players.
+
+The architecture must allow future expansion into large-scale alliance warfare without requiring a complete rewrite.
+
+---
+
+PART 13: MULTIPLAYER AND PERSISTENT WORLD ARCHITECTURE
+
+Multiplayer must be designed carefully.
+
+Do not implement multiplayer by simply synchronising every graphical object between browsers.
+
+Use a server-authoritative architecture.
+
+13.1 Server authority
+
+The server must control and validate:
+
+- Resource quantities.
+- Resource production.
+- Building ownership.
+- Building construction.
+- Unit ownership.
+- Combat outcomes.
+- Territory ownership.
+- Trading.
+- Diplomacy.
+- Player actions.
+- Game progression.
+
+Clients should send commands and receive validated game-state updates.
+
+Never trust the browser client with authoritative economic or combat calculations.
+
+13.2 Networking
+
+Evaluate the most appropriate networking architecture for the actual deployment environment.
+
+Consider:
+
+- WebSockets.
+- Authoritative game-state updates.
+- Efficient state replication.
+- Reconnection.
+- Latency handling.
+- Player session management.
+- Room or world management.
+
+Use WebSockets or another suitable real-time transport when supported and justified.
+
+Do not assume that ordinary database listeners are sufficient for high-frequency RTS combat synchronisation.
+
+13.3 Persistent world
+
+Players should retain their kingdoms and progression between sessions.
+
+Persist:
+
+- Kingdom information.
+- Player identity.
+- Buildings.
+- Resources.
+- Population.
+- Military units.
+- Territories.
+- Research.
+- Diplomatic relationships.
+- Relevant world events.
+
+Implement appropriate save and recovery mechanisms.
+
+13.4 Security
+
+Implement:
+
+- Authentication.
+- Authorisation.
+- Server-side validation.
+- Database security rules.
+- Input validation.
+- Rate limiting where appropriate.
+- Protection against duplicate actions.
+- Protection against resource manipulation.
+- Protection against unauthorised territory changes.
+
+Never expose privileged server credentials in frontend code.
+
+---
+
+PART 14: USER INTERFACE AND USER EXPERIENCE
+
+Design a premium strategy-game interface.
+
+The interface must feel like a professionally developed commercial game.
+
+Avoid generic AI-generated dashboards.
+
+14.1 Main menu
+
+Include:
+
+- Play.
+- Campaign.
+- Kingdom Sandbox.
+- Multiplayer.
+- Kingdom Selection.
+- Settings.
+- Account/Profile.
+
+14.2 In-game interface
+
+The main gameplay interface should provide:
+
+Top information bar:
+
+- Food.
+- Wood.
+- Stone.
+- Iron.
+- Gold.
+- Population.
+- Kingdom status.
+
+Side panels:
+
+- Kingdom management.
+- Construction.
+- Military.
+- Research.
+- Diplomacy.
+- Trade.
+
+Bottom contextual panel:
+
+- Selected unit information.
+- Selected building information.
+- Available commands.
+- Group formations.
+- Contextual actions.
+
+The interface should not obstruct the battlefield unnecessarily.
+
+14.3 Visual design
+
+Use:
+
+- Clear typography.
+- Strong visual hierarchy.
+- Consistent iconography.
+- Refined panels.
+- Subtle transitions.
+- Appropriate colour contrast.
+- Premium game-inspired styling.
+
+The interface should visually complement the world rather than resemble a generic administrative website.
+
+14.4 Responsive interaction
+
+Desktop:
+
+- Mouse.
+- Keyboard shortcuts.
+- Drag selection.
+- Context menus.
+
+Mobile:
+
+- Touch selection.
+- Tap-to-move.
+- Tap-to-attack.
+- Accessible construction controls.
+- Responsive panels.
+- Appropriate touch targets.
+
+Do not simply shrink the desktop interface for mobile.
+
+Design mobile interactions intentionally.
+
+---
+
+PART 15: AUDIO AND MUSIC
+
+Develop an integrated audio system.
+
+Do not require the user to manually produce or import audio assets.
+
+Use genuinely available generation capabilities or procedural audio techniques.
+
+15.1 Sound effects
+
+Create or generate appropriate sound effects for:
+
+- Building construction.
+- Resource gathering.
+- Footsteps.
+- Weapons.
+- Combat.
+- Cavalry.
+- Environmental ambience.
+- Markets.
+- Villages.
+- Military commands.
+- Interface interactions.
+
+15.2 Music
+
+Develop a distinctive soundtrack inspired by appropriate African musical traditions.
+
+Music should support:
+
+- Main menu.
+- Peaceful settlement development.
+- Exploration.
+- Military preparation.
+- Active battles.
+- Victory.
+- Defeat.
+
+Avoid generic loops that become repetitive.
+
+15.3 Audio controls
+
+Provide:
+
+- Master volume.
+- Music volume.
+- Sound effects volume.
+- Mute controls.
+
+If advanced generative audio services are unavailable, use a suitable procedural audio implementation rather than pretending that music-generation capabilities exist.
+
+Do not activate paid audio services without explicit permission.
+
+---
+
+PART 16: BACKEND AND APPLICATION ARCHITECTURE
+
+Use a maintainable full-stack architecture.
+
+Preferred frontend:
+
+- React.
+- TypeScript.
+- Three.js.
+- React Three Fiber.
+- Drei.
+
+Preferred backend:
+
+- Node.js server runtime.
+- Appropriate server-side game simulation services.
+
+Evaluate:
+
+- Firebase Authentication.
+- Cloud Firestore.
+- Cloud Run.
+- WebSocket-compatible infrastructure.
+
+Use Firebase where it provides a suitable solution.
+
+Do not force every gameplay operation into Firestore.
+
+High-frequency game simulation and multiplayer updates may require a dedicated server-side simulation layer.
+
+16.1 Modular architecture
+
+Separate the codebase into clearly defined modules.
+
+Suggested modules:
+
+- Core Game Engine.
+- World Generation.
+- Terrain System.
+- Character System.
+- Animation System.
+- Building System.
+- Resource System.
+- Population System.
+- Economy System.
+- Military System.
+- Combat System.
+- Pathfinding System.
+- Kingdom AI.
+- Diplomacy System.
+- Research System.
+- Multiplayer System.
+- Persistence System.
+- Audio System.
+- UI System.
+- Authentication System.
+
+Each module must have clearly defined responsibilities and interfaces.
+
+Avoid creating one enormous component containing the entire game.
+
+16.2 Data-driven design
+
+Use data-driven configurations for:
+
+- Kingdoms.
+- Buildings.
+- Characters.
+- Military units.
+- Resources.
+- Technologies.
+- Terrain.
+- Gameplay balance.
+- AI behaviour.
+
+This should make it possible to introduce new kingdoms, units and buildings without rewriting core systems.
+
+---
+
+PART 17: PERFORMANCE AND OPTIMISATION
+
+Performance is a core requirement, not an afterthought.
+
+The game must target:
+
+- Desktop browsers.
+- Android phones.
+- Tablets.
+
+Prioritise reliability on low-end Android devices.
+
+Implement appropriate techniques including:
+
+- Instanced rendering.
+- Level of detail.
+- Frustum culling.
+- Efficient geometry.
+- Texture optimisation.
+- Material batching where appropriate.
+- Object pooling.
+- Efficient pathfinding.
+- Spatial partitioning.
+- Adaptive graphics quality.
+- Memory management.
+- Efficient network updates.
+
+Do not simulate every villager or military unit at maximum detail when they are outside the player's relevant view.
+
+Use appropriate simulation levels.
+
+The game should preserve gameplay correctness even when distant units are simulated at reduced detail.
+
+---
+
+PART 18: DEVELOPMENT AND IMPLEMENTATION STRATEGY
+
+This section is mandatory.
+
+The game is ambitious. Do not attempt to implement every system in one uncontrolled code-generation operation.
+
+Build the game incrementally using verified milestones.
+
+However, do not mistake the requirement for incremental development as permission to stop after producing a plan or a superficial prototype.
+
+You are responsible for implementing the actual systems.
+
+PHASE 0 — PROJECT AUDIT AND ARCHITECTURE
+
+Before modifying the project:
+
+1. Inspect the existing project.
+2. Identify available packages and tools.
+3. Determine available backend integrations.
+4. Identify genuine asset-generation capabilities.
+5. Evaluate deployment constraints.
+6. Establish the application architecture.
+7. Identify technical risks.
+8. Establish a practical implementation sequence.
+
+Do not enable paid services or create billable infrastructure without explicit user approval.
+
+Provide a concise technical plan, then begin implementation.
+
+PHASE 1 — CORE GAME FOUNDATION
+
+Implement:
+
+- Application structure.
+- Main menu.
+- Game loading.
+- 3D rendering.
+- Camera system.
+- World generation.
+- Kingdom selection.
+- Initial settlement.
+- Core UI.
+
+Deliverable: A functional, navigable 3D game environment.
+
+PHASE 2 — KINGDOM AND ECONOMIC SYSTEMS
+
+Implement:
+
+- Villagers.
+- Population.
+- Resource gathering.
+- Resource storage.
+- Building placement.
+- Construction.
+- Economic buildings.
+- Population management.
+
+Deliverable: A playable settlement in which the player can manage a functioning economy.
+
+PHASE 3 — MILITARY SYSTEM
+
+Implement:
+
+- Military recruitment.
+- Unit selection.
+- Movement.
+- Pathfinding.
+- Formations.
+- Combat.
+- Damage.
+- Health.
+- Morale.
+- Commanders.
+
+Deliverable: A functioning real-time military strategy experience.
+
+PHASE 4 — AI KINGDOMS
+
+Implement:
+
+- AI settlement development.
+- AI resource management.
+- AI recruitment.
+- AI expansion.
+- AI military behaviour.
+- AI diplomacy.
+- AI warfare.
+
+Deliverable: Independent AI kingdoms that interact meaningfully with the player.
+
+PHASE 5 — PROGRESSION AND DIPLOMACY
+
+Implement:
+
+- Technology research.
+- Kingdom progression.
+- Territorial ownership.
+- Trade.
+- Alliances.
+- Treaties.
+- War declarations.
+- Peace agreements.
+
+Deliverable: A functioning empire-building and political strategy system.
+
+PHASE 6 — PERSISTENCE AND MULTIPLAYER
+
+Implement:
+
+- Authentication.
+- Persistent kingdoms.
+- Server-authoritative simulation.
+- Real-time multiplayer.
+- Trading between players.
+- Alliances.
+- Multiplayer warfare.
+- Reconnection.
+- Data recovery.
+
+Deliverable: A functional shared multiplayer world.
+
+PHASE 7 — POLISH AND RELEASE PREPARATION
+
+Implement:
+
+- Visual improvements.
+- Audio.
+- Performance optimisation.
+- Mobile controls.
+- PWA installation.
+- Error handling.
+- Security review.
+- Gameplay balancing.
+- Testing.
+
+Deliverable: A stable release candidate.
+
+Dependencies between systems must be respected. You may adjust the sequence when technically necessary, but document the reason.
+
+---
+
+PART 19: DEVELOPMENT RULES
+
+These rules apply throughout the project.
+
+Rule 1: Preserve existing functionality
+
+Before changing existing code, inspect its dependencies and behaviour.
+
+Do not casually delete, replace or rewrite working systems.
+
+Make focused changes.
+
+Rule 2: Implement, do not merely describe
+
+When instructed to develop a system, implement the actual functionality.
+
+Do not substitute explanations, mockups, placeholder buttons or static illustrations for working features.
+
+Rule 3: Verify before claiming success
+
+Test implementations.
+
+Report:
+
+- What works.
+- What partially works.
+- What does not work.
+- What remains incomplete.
+
+Rule 4: No fake functionality
+
+Do not create buttons that appear functional but have no meaningful implementation.
+
+Do not simulate multiplayer using disconnected local players and describe it as online multiplayer.
+
+Do not pretend AI kingdoms are intelligent when they are simply following static scripts.
+
+Rule 5: No unnecessary external dependencies
+
+Prefer stable, suitable and maintainable libraries.
+
+Verify package compatibility before introducing dependencies.
+
+Rule 6: No manual asset-production requirements
+
+The user must not be required to manually model, rig, animate, texture or compose assets in external software.
+
+Use procedural generation and available integrated capabilities.
+
+If a required capability is genuinely unavailable, explain the limitation and implement the best feasible alternative.
+
+Rule 7: No unapproved expenses
+
+Do not enable paid APIs, subscriptions, infrastructure or services without explicit approval.
+
+Estimate expected costs before introducing potentially billable services.
+
+Rule 8: Maintainable code
+
+Use:
+
+- TypeScript types.
+- Reusable components.
+- Clear module boundaries.
+- Consistent naming.
+- Error handling.
+- Documentation for complex systems.
+- Automated tests where appropriate.
+
+Avoid unnecessary code duplication.
+
+Rule 9: Continuous testing
+
+After implementing a major system:
+
+- Run the application.
+- Inspect runtime errors.
+- Test interactions.
+- Test integration.
+- Verify mobile behaviour.
+- Correct discovered problems before building dependent systems.
+
+Rule 10: Honest technical decisions
+
+Do not invent API capabilities, package functionality, model availability or backend behaviour.
+
+Investigate actual capabilities before using them.
+
+---
+
+PART 20: DEFINITION OF A SUCCESSFUL GAME
+
+Empires of Akanu should eventually meet the following conditions:
+
+1. A player can create an account and establish a kingdom.
+2. The player can explore a fully interactive 3D world.
+3. The player can construct and upgrade buildings.
+4. Villagers can perform meaningful economic activities.
+5. Resources can be gathered, stored and consumed.
+6. The player can recruit and control military units.
+7. Military units can move, form groups and engage in real-time combat.
+8. Battles reflect unit strengths, weaknesses and terrain.
+9. AI kingdoms can develop independently.
+10. Kingdoms can trade, negotiate, form alliances and wage wars.
+11. Players can progress from villages to empires.
+12. Game progress persists between sessions.
+13. Multiple players can interact within a shared world.
+14. The experience works across desktop, Android and tablets.
+15. The game maintains a consistent, premium visual identity.
+
+These are the long-term product objectives. Do not claim the complete game meets them until they have actually been implemented and verified.
+
+---
+
+FINAL INSTRUCTION
+
+Begin by inspecting the current Google AI Studio project and establishing the implementation architecture.
+
+Then implement Phase 1.
+
+Do not spend the entire response producing another design document.
+
+Do not build only a landing page.
+
+Do not create a static 3D showcase and call it a strategy game.
+
+Build the actual game, beginning with a strong technical foundation that supports the remaining systems.
+
+Maintain a development progress record containing:
+
+- Completed systems.
+- Partially completed systems.
+- Outstanding systems.
+- Known bugs.
+- Architectural decisions.
+- Performance observations.
+- Next implementation milestone.
+
+When a milestone is complete, test it before proceeding.
+
+If you encounter a technical limitation, investigate alternatives and make the most reliable decision within the project's cost and platform constraints.
+
+The ultimate objective is to deliver a polished, playable, scalable African-inspired real-time strategy and empire-building game.
+
+EMPIRES OF AKANU
+
+RISE. CONQUER. RULE.
