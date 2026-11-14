@@ -93,24 +93,25 @@ export function createBuildingMaterialLibrary(
   });
 
   const loamSoil = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#3b2616'),
-    roughness: 0.96,
+    color: new THREE.Color('#6b5038'),
+    map: textures.soilMap,
+    normalMap: textures.soilNormal,
+    normalScale: new THREE.Vector2(0.75, 0.75),
+    roughness: 0.92,
     metalness: 0.0,
     envMapIntensity: 0.35,
-    bumpMap: textures.terrainBump,
-    bumpScale: 0.06,
   });
 
   const cropStalk = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#c2a63d'),
-    roughness: 0.75,
-    metalness: 0.03,
+    color: new THREE.Color('#6a9a3a'),
+    roughness: 0.76,
+    metalness: 0.02,
   });
 
   const terracottaPot = new THREE.MeshStandardMaterial({
     color: new THREE.Color('#ab542e'),
-    roughness: 0.52,
-    metalness: 0.08,
+    roughness: 0.56,
+    metalness: 0.06,
     envMapIntensity: 0.5,
   });
 
@@ -264,6 +265,72 @@ function addToronBeams(
   }
 }
 
+function addRoofRafters(
+  parent: THREE.Group,
+  x: number,
+  y: number,
+  z: number,
+  radius: number,
+  count: number,
+  mats: BuildingMaterialLibrary,
+): void {
+  const rafterGeo = new THREE.CylinderGeometry(0.038, 0.045, radius * 0.58, 5);
+  rafterGeo.rotateZ(Math.PI / 2);
+  for (let i = 0; i < count; i++) {
+    const ang = (i / count) * Math.PI * 2;
+    const rafter = tagStage(enableShadows(new THREE.Mesh(rafterGeo, mats.timber), false, true), 4);
+    rafter.position.set(x + Math.cos(ang) * radius, y, z + Math.sin(ang) * radius);
+    rafter.rotation.y = -ang;
+    rafter.rotation.z = -0.28;
+    parent.add(rafter);
+  }
+}
+
+function addVillageHearthProps(
+  parent: THREE.Group,
+  hx: number,
+  hz: number,
+  mats: BuildingMaterialLibrary,
+): void {
+  // Stone-ringed outdoor cooking hearth with glowing embers & simmering clay pot
+  for (let i = 0; i < 7; i++) {
+    const ang = (i / 7) * Math.PI * 2;
+    const stone = tagStage(
+      enableShadows(new THREE.Mesh(new THREE.DodecahedronGeometry(0.11, 0), mats.masonryDark)),
+      5,
+    );
+    stone.position.set(hx + Math.cos(ang) * 0.34, 0.08, hz + Math.sin(ang) * 0.34);
+    stone.scale.set(1.2, 0.65, 1.0);
+    stone.userData.baseScaleY = stone.scale.y;
+    parent.add(stone);
+  }
+  const embers = tagStage(
+    new THREE.Mesh(new THREE.SphereGeometry(0.16, 7, 6), mats.forgeEmber),
+    5,
+  );
+  embers.scale.set(1.2, 0.45, 1.2);
+  embers.position.set(hx, 0.08, hz);
+  embers.userData.baseScaleY = embers.scale.y;
+  parent.add(embers);
+
+  const cookingPot = tagStage(
+    enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), mats.terracottaPot)),
+    5,
+  );
+  cookingPot.scale.set(1.0, 0.88, 1.0);
+  cookingPot.position.set(hx, 0.24, hz);
+  cookingPot.userData.baseScaleY = cookingPot.scale.y;
+  parent.add(cookingPot);
+
+  // Woven straw grain-drying mat nearby
+  const mat = tagStage(
+    enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.56, 0.03, 12), mats.thatch), false, true),
+    5,
+  );
+  mat.position.set(hx + 0.92, 0.03, hz - 0.38);
+  parent.add(mat);
+}
+
 function buildConstructionScaffolding(
   radius: number,
   mats: BuildingMaterialLibrary,
@@ -378,6 +445,80 @@ export function syncBuildingConstructionVisual(
       child.scale.y = baseY;
     }
     scaffolding.visible = false;
+  }
+
+  // Sync moisture-reactive soil & multi-stage crops for cultivated farms
+  if (entity.archetype === 'cultivated_farm' && entity.constructionState === 'completed') {
+    const farmSoilMat = rootGroup.userData.farmSoilMat as THREE.MeshStandardMaterial | undefined;
+    const moisture = Math.max(0, Math.min(1, entity.soilMoisture ?? 0.45));
+    if (farmSoilMat) {
+      // Dry warm earth (#85684a) -> Rich damp wet loam (#26170d)
+      const dryCol = new THREE.Color('#85684a');
+      const wetCol = new THREE.Color('#26170d');
+      farmSoilMat.color.copy(dryCol).lerp(wetCol, moisture);
+      farmSoilMat.roughness = 0.95 - moisture * 0.52;
+    }
+
+    const cropPlants = rootGroup.userData.cropPlants as
+      | {
+          group: THREE.Group;
+          sprout: THREE.Object3D;
+          leafy: THREE.Object3D;
+          stalk: THREE.Object3D;
+          grain: THREE.Object3D;
+          baseScale: number;
+        }[]
+      | undefined;
+    const grainMat = rootGroup.userData.cropGrainMat as THREE.MeshStandardMaterial | undefined;
+    const progress = Math.max(0, Math.min(1, entity.cropGrowthProgress ?? 0.3));
+    const stage = entity.cropGrowthStage ?? 1;
+
+    if (grainMat) {
+      const youngGreen = new THREE.Color('#5f9937');
+      const ripeGold = new THREE.Color('#dfb038');
+      const ripenT = Math.max(0, Math.min(1, (progress - 0.55) / 0.35));
+      grainMat.color.copy(youngGreen).lerp(ripeGold, ripenT);
+    }
+
+    if (cropPlants) {
+      for (const plant of cropPlants) {
+        if (stage === 0) {
+          // Stage 0: Seeded soil with tiny shoots barely emerging
+          plant.sprout.visible = true;
+          plant.sprout.scale.setScalar(0.48 + progress * 2.5);
+          plant.leafy.visible = false;
+          plant.stalk.visible = false;
+          plant.grain.visible = false;
+        } else if (stage === 1) {
+          // Stage 1: Vibrant green sprouts
+          plant.sprout.visible = true;
+          plant.sprout.scale.setScalar(1.0);
+          plant.leafy.visible = true;
+          plant.leafy.scale.setScalar(0.55 + (progress - 0.14) * 1.4);
+          plant.stalk.visible = false;
+          plant.grain.visible = false;
+        } else if (stage === 2) {
+          // Stage 2: Leafy mid-height green stalks
+          plant.sprout.visible = false;
+          plant.leafy.visible = true;
+          plant.leafy.scale.setScalar(1.0);
+          plant.stalk.visible = true;
+          plant.stalk.scale.set(0.85, 0.58 + (progress - 0.36) * 1.1, 0.85);
+          plant.grain.visible = false;
+        } else {
+          // Stage 3 & 4: Tall flowering & golden harvest-ready stalks
+          plant.sprout.visible = false;
+          plant.leafy.visible = true;
+          plant.leafy.scale.setScalar(1.05);
+          plant.stalk.visible = true;
+          const heightScale = stage === 4 ? 1.08 : 0.88 + (progress - 0.62) * 0.65;
+          plant.stalk.scale.set(1, heightScale, 1);
+          plant.grain.visible = true;
+          const headScale = stage === 4 ? 1.12 : 0.68 + (progress - 0.62) * 1.4;
+          plant.grain.scale.setScalar(headScale);
+        }
+      }
+    }
   }
 }
 
@@ -674,10 +815,13 @@ export function buildProceduralStructure(
         doorFrame.position.set(hx + Math.cos(doorAngle) * (rad * 0.95), 0.75, hz + Math.sin(doorAngle) * (rad * 0.95));
         doorFrame.rotation.y = -doorAngle + Math.PI / 2;
         group.add(doorFrame);
+
+        addRoofRafters(group, hx, 2.22, hz, rad * 1.24, 10, mats);
       });
 
       addClayVessels(group, -0.3, 0.3, mats);
       addClayVessels(group, 0.45, -0.2, mats);
+      addVillageHearthProps(group, -0.1, 0.15, mats);
       break;
     }
 
@@ -729,6 +873,8 @@ export function buildProceduralStructure(
         roof.position.set(0, 3.55, 0);
         group.add(roof);
 
+        addRoofRafters(group, 0, 2.38, 0, 2.32, 12, mats);
+
         const finial = enableShadows(
           new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.12, 0.55, 6), mats.timber),
         );
@@ -766,8 +912,9 @@ export function buildProceduralStructure(
       doorPanel.position.set(0, 0.95, 1.93);
       group.add(doorPanel);
 
-      // Entrance clay water urns & firewood pile
+      // Entrance clay water urns, domestic cooking hearth, drying grain mat & firewood pile
       addClayVessels(group, 1.25, 1.65, mats);
+      addVillageHearthProps(group, 1.78, 0.55, mats);
       const firewood = enableShadows(
         new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.85, 6), mats.timber),
       );
@@ -1369,26 +1516,34 @@ export function buildProceduralStructure(
     }
 
     case 'cultivated_farm': {
+      // Instance-specific moisture-reactive soil material + ripening grain material
+      const farmSoilMat = mats.loamSoil.clone();
+      const cropGrainMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color('#6ea338'),
+        roughness: 0.72,
+        metalness: 0.04,
+      });
+      rootGroup.userData.farmSoilMat = farmSoilMat;
+      rootGroup.userData.cropGrainMat = cropGrainMat;
+      rootGroup.userData.extraDisposables = [farmSoilMat, cropGrainMat];
+
       // 1. Multi-tier Stepped Terraced Earthworks
-      // Lower Terrace (-Z side)
       const lowerTerrace = enableShadows(
-        new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.45, 3.6), mats.loamSoil),
+        new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.45, 3.6), farmSoilMat),
         false,
         true,
       );
       lowerTerrace.position.set(0, -0.05, 1.85);
       group.add(lowerTerrace);
 
-      // Upper Terrace (+Z side)
       const upperTerrace = enableShadows(
-        new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.72, 3.6), mats.loamSoil),
+        new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.72, 3.6), farmSoilMat),
         false,
         true,
       );
       upperTerrace.position.set(0, 0.22, -1.85);
       group.add(upperTerrace);
 
-      // Dry-stone Terrace Retaining Riser Wall
       const retainingWall = enableShadows(
         new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.55, 0.38), mats.masonryDark),
         true,
@@ -1397,7 +1552,7 @@ export function buildProceduralStructure(
       retainingWall.position.set(0, 0.16, 0.05);
       group.add(retainingWall);
 
-      // 2. Central Sunken Stone-Lined Feeder Canal & Running Water Ribbon
+      // 2. Central Sunken Stone-Lined Feeder Canal & Water Reservoir Trough
       const canalTrench = enableShadows(
         new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.3, 7.6), mats.masonryDark),
         false,
@@ -1414,61 +1569,82 @@ export function buildProceduralStructure(
       waterRibbon.position.set(0, 0.15, 0);
       group.add(waterRibbon);
 
-      // Timber canal footbridge crossing
       const bridge = enableShadows(
         new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 0.55), mats.timber),
       );
       bridge.position.set(0, 0.28, 0.05);
       group.add(bridge);
 
-      // Sluice gate control post
       const sluicePost = enableShadows(
         new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.85, 6), mats.timber),
       );
       sluicePost.position.set(0.48, 0.52, 0.05);
       group.add(sluicePost);
 
-      // 3. Furrowed Crop Rows (3 rows lower terrace, 3 rows upper terrace)
+      // 3. Furrowed Crop Rows with Multi-Stage Morphing Crop Plants
       const furrowGeo = new THREE.CylinderGeometry(0.18, 0.28, 3.8, 6);
       furrowGeo.rotateZ(Math.PI / 2);
 
-      const stalkStemGeo = new THREE.CylinderGeometry(0.035, 0.045, 1.15, 5);
-      const leafGeo = new THREE.BoxGeometry(0.45, 0.02, 0.08);
-      const grainHeadGeo = new THREE.ConeGeometry(0.12, 0.42, 6);
+      const sproutGeo = new THREE.ConeGeometry(0.08, 0.24, 5);
+      const leafyGeo = new THREE.ConeGeometry(0.22, 0.34, 6);
+      const stalkStemGeo = new THREE.CylinderGeometry(0.032, 0.044, 1.05, 5);
+      const leafGeo = new THREE.PlaneGeometry(0.44, 0.12);
+      const grainHeadGeo = new THREE.ConeGeometry(0.11, 0.40, 6);
 
-      // Helper to generate a realistic sorghum/millet plant
-      const addCropPlant = (px: number, py: number, pz: number, scale = 1.0) => {
+      const cropPlants: {
+        group: THREE.Group;
+        sprout: THREE.Object3D;
+        leafy: THREE.Object3D;
+        stalk: THREE.Object3D;
+        grain: THREE.Object3D;
+        baseScale: number;
+      }[] = [];
+
+      const addCropPlant = (px: number, py: number, pz: number, baseScale = 1.0) => {
         const plant = new THREE.Group();
         plant.position.set(px, py, pz);
-        plant.scale.setScalar(scale);
+        plant.scale.setScalar(baseScale);
 
+        // Stage 0/1: Tender green sprout
+        const sprout = enableShadows(new THREE.Mesh(sproutGeo, mats.cropStalk), false, true);
+        sprout.position.y = 0.12;
+        plant.add(sprout);
+
+        // Stage 1/2: Lush leafy rosette
+        const leafy = enableShadows(new THREE.Mesh(leafyGeo, mats.cropStalk), true, false);
+        leafy.position.y = 0.22;
+        plant.add(leafy);
+
+        // Stage 2/3/4: Tall stalk + radiating leaf blades
+        const stalk = new THREE.Group();
         const stem = enableShadows(new THREE.Mesh(stalkStemGeo, mats.cropStalk), true, false);
-        stem.position.y = 0.58;
-        stem.rotation.z = (Math.sin(px * 3.0 + pz * 2.0) * 0.08);
-        plant.add(stem);
+        stem.position.y = 0.52;
+        stem.rotation.z = Math.sin(px * 3.0 + pz * 2.0) * 0.08;
+        stalk.add(stem);
 
-        // Radiating arched leaf blades
-        for (let l = 0; l < 2; l++) {
+        for (let l = 0; l < 3; l++) {
           const leaf = enableShadows(new THREE.Mesh(leafGeo, mats.cropStalk), true, false);
-          leaf.position.set(l === 0 ? 0.16 : -0.16, 0.45 + l * 0.25, 0);
-          leaf.rotation.z = l === 0 ? -0.35 : 0.35;
-          plant.add(leaf);
+          const ang = l * 2.1 + px;
+          leaf.position.set(Math.cos(ang) * 0.16, 0.34 + l * 0.22, Math.sin(ang) * 0.16);
+          leaf.rotation.set(0.35, ang, -0.4);
+          stalk.add(leaf);
         }
+        plant.add(stalk);
 
-        // Golden plump grain head
-        const grainHead = enableShadows(new THREE.Mesh(grainHeadGeo, mats.cropStalk), true, false);
-        grainHead.position.set(0, 1.25, 0);
-        plant.add(grainHead);
+        // Stage 3/4: Plump grain panicle that ripens green -> harvest gold
+        const grain = enableShadows(new THREE.Mesh(grainHeadGeo, cropGrainMat), true, false);
+        grain.position.set(0, 1.15, 0);
+        plant.add(grain);
 
         group.add(plant);
+        cropPlants.push({ group: plant, sprout, leafy, stalk, grain, baseScale });
       };
 
-      // Populate lower terrace furrows & crops (left and right of central canal)
       for (const side of [-1, 1]) {
         for (let r = 0; r < 3; r++) {
           const fz = 0.85 + r * 1.0;
           const fx = side * 2.3;
-          const furrow = enableShadows(new THREE.Mesh(furrowGeo, mats.loamSoil), false, true);
+          const furrow = enableShadows(new THREE.Mesh(furrowGeo, farmSoilMat), false, true);
           furrow.position.set(fx, 0.22, fz);
           group.add(furrow);
 
@@ -1483,12 +1659,11 @@ export function buildProceduralStructure(
         }
       }
 
-      // Populate upper terrace furrows & crops
       for (const side of [-1, 1]) {
         for (let r = 0; r < 3; r++) {
           const fz = -2.85 + r * 1.0;
           const fx = side * 2.3;
-          const furrow = enableShadows(new THREE.Mesh(furrowGeo, mats.loamSoil), false, true);
+          const furrow = enableShadows(new THREE.Mesh(furrowGeo, farmSoilMat), false, true);
           furrow.position.set(fx, 0.62, fz);
           group.add(furrow);
 
@@ -1503,7 +1678,9 @@ export function buildProceduralStructure(
         }
       }
 
-      // 4. Perimeter Wattle Fence Posts
+      rootGroup.userData.cropPlants = cropPlants;
+
+      // 4. Perimeter Wattle Fence Posts & Wooden Rails
       for (const cx of [-4.2, 4.2]) {
         for (const cz of [-3.5, 0.05, 3.5]) {
           const post = enableShadows(
@@ -1512,9 +1689,15 @@ export function buildProceduralStructure(
           post.position.set(cx, cz <= 0 ? 0.72 : 0.45, cz);
           group.add(post);
         }
+        const rail = enableShadows(
+          new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 7.0, 5), mats.timber),
+        );
+        rail.rotation.x = Math.PI / 2;
+        rail.position.set(cx, 0.72, 0);
+        group.add(rail);
       }
 
-      // 5. Farmer's Thatch Ramada Shelter (Corner resting hut)
+      // 5. Farmer's Thatch Ramada Shelter & Clay Irrigation Jars
       for (const sx of [-3.8, -3.0]) {
         for (const sz of [-3.2, -2.4]) {
           const post = enableShadows(
@@ -1531,7 +1714,6 @@ export function buildProceduralStructure(
       shadeRoof.rotation.x = 0.18;
       group.add(shadeRoof);
 
-      // Clay water vessels and farm baskets under ramada
       addClayVessels(group, -3.2, -2.5, mats);
       break;
     }

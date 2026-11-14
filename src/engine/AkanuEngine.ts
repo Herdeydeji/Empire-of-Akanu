@@ -100,6 +100,7 @@ import {
   pushWorldEvent,
   WorldEventState,
 } from './simulation/worldEventSim';
+import { stepVillageLivestock } from './simulation/livestockSim';
 
 export interface EconomyHudSnapshot {
   resources: ResourceAmounts;
@@ -151,6 +152,7 @@ function snapshotSelectableEntity(entity: SelectableEntity): SelectableEntity {
       ...entity,
       position: { ...entity.position },
       moveTarget: entity.moveTarget ? { ...entity.moveTarget } : null,
+      waterTarget: entity.waterTarget ? { ...entity.waterTarget } : null,
     };
   }
   if (entity.category === 'building') {
@@ -259,7 +261,7 @@ export class AkanuEngine {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
+    this.renderer.toneMappingExposure = 1.07;
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(
       this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2),
@@ -282,27 +284,27 @@ export class AkanuEngine {
     this.scene.environment = this.envTexture;
     pmrem.dispose();
 
-    this.hemiLight = new THREE.HemisphereLight('#9ec5e8', '#593d22', 0.54);
+    this.hemiLight = new THREE.HemisphereLight('#9bc1e6', '#5c3b1e', 0.58);
     this.scene.add(this.hemiLight);
 
-    this.sunLight = new THREE.DirectionalLight('#ffdfa8', 1.85);
-    this.sunLight.position.set(48, 68, 36);
+    this.sunLight = new THREE.DirectionalLight('#ffd18c', 2.15);
+    this.sunLight.position.set(62, 40, 46);
     this.sunLight.castShadow = !this.isSoftwareGl;
-    this.sunLight.shadow.mapSize.set(1024, 1024);
+    this.sunLight.shadow.mapSize.set(1536, 1536);
     this.sunLight.shadow.camera.near = 10;
-    this.sunLight.shadow.camera.far = 190;
-    const shadowExtent = 58;
+    this.sunLight.shadow.camera.far = 210;
+    const shadowExtent = 64;
     this.sunLight.shadow.camera.left = -shadowExtent;
     this.sunLight.shadow.camera.right = shadowExtent;
     this.sunLight.shadow.camera.top = shadowExtent;
     this.sunLight.shadow.camera.bottom = -shadowExtent;
-    this.sunLight.shadow.bias = -0.0005;
-    this.sunLight.shadow.normalBias = 0.025;
+    this.sunLight.shadow.bias = -0.0004;
+    this.sunLight.shadow.normalBias = 0.028;
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
 
-    this.rimLight = new THREE.DirectionalLight('#9ec5e8', 0.42);
-    this.rimLight.position.set(-42, 34, -36);
+    this.rimLight = new THREE.DirectionalLight('#90b6dc', 0.36);
+    this.rimLight.position.set(-48, 30, -40);
     this.scene.add(this.rimLight);
     this.scene.add(this.rimLight.target);
 
@@ -1397,7 +1399,12 @@ export class AkanuEngine {
     if (!this.isPaused && this.activeWorld && this.economyRuntime) {
       this.elapsedSeconds += frameDt;
       this.activeWorld.updateWater(this.elapsedSeconds);
-      this.activeWorld.updateEnvironment(this.elapsedSeconds, frameDt);
+      this.activeWorld.updateEnvironment(
+        this.elapsedSeconds,
+        frameDt,
+        this.cameraRig.targetX,
+        this.cameraRig.targetZ,
+      );
 
       // Sub-step economy & military simulation in <= 0.05s slices so 10Hz software-WebGL keeps 1.0x real-time speed safely
       let rem = frameDt;
@@ -1435,6 +1442,14 @@ export class AkanuEngine {
           this.economyRuntime,
           this.militaryState,
           this.aiKingdomManager,
+        );
+        stepVillageLivestock(
+          this.activeWorld.livestock,
+          this.activeWorld.buildings,
+          slice,
+          region,
+          this.currentParams.seed,
+          this.elapsedSeconds,
         );
 
         const aiEvents = stepAIKingdomManager(
@@ -1494,9 +1509,25 @@ export class AkanuEngine {
             Math.sin(entity.gaitPhase) > 0.94
           ) {
             this.activeWorld.spawnVfxBurst(entity.position.x, entity.position.y + 1.1, entity.position.z, 'spark');
+          } else if (
+            entity.animationState === 'drawing_water' &&
+            entity.waterTarget &&
+            Math.random() < 0.22
+          ) {
+            this.activeWorld.spawnVfxBurst(
+              entity.waterTarget.x,
+              WATER_LEVEL + 0.03,
+              entity.waterTarget.z,
+              'water_ripple',
+            );
+          } else if (entity.animationState === 'watering_crops' && Math.random() < 0.42) {
+            const pourX = entity.position.x + Math.sin(entity.rotationY) * 0.65;
+            const pourZ = entity.position.z + Math.cos(entity.rotationY) * 0.65;
+            this.activeWorld.spawnVfxBurst(pourX, entity.position.y + 0.95, pourZ, 'water_drop');
           }
         }
       }
+      this.activeWorld.updateLivestockVisuals();
       if (workerSfxKind && Math.random() < 0.08) {
         soundEngine.playWorkAction(workerSfxKind);
       }
@@ -1538,11 +1569,11 @@ export class AkanuEngine {
     this.camera.position.set(pose.eyeX, pose.eyeY, pose.eyeZ);
     this.camera.lookAt(pose.lookX, pose.lookY, pose.lookZ);
 
-    this.sunLight.position.set(pose.lookX + 46, pose.lookY + 66, pose.lookZ + 34);
+    this.sunLight.position.set(pose.lookX + 62, pose.lookY + 40, pose.lookZ + 46);
     this.sunLight.target.position.set(pose.lookX, pose.lookY, pose.lookZ);
     this.sunLight.target.updateMatrixWorld();
 
-    this.rimLight.position.set(pose.lookX - 42, pose.lookY + 34, pose.lookZ - 36);
+    this.rimLight.position.set(pose.lookX - 48, pose.lookY + 30, pose.lookZ - 40);
     this.rimLight.target.position.set(pose.lookX, pose.lookY, pose.lookZ);
     this.rimLight.target.updateMatrixWorld();
 

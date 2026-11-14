@@ -131,7 +131,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
         <div className="text-[11px] font-semibold text-[#D4A64A] tracking-wide">
           Rival Sovereign Realms
         </div>
-        <div className="space-y-1.5">
+        <div className="grid grid-cols-2 lg:grid-cols-1 gap-1.5">
           {rivalIds.map((rId) => {
             const rConfig = KINGDOMS[rId];
             const rel = relations[rId];
@@ -147,19 +147,19 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
                 type="button"
                 onClick={() => setSelectedTargetId(rId)}
                 aria-pressed={isSelected}
-                className={`w-full text-left p-2.5 rounded border transition-colors duration-150 cursor-pointer ${
+                className={`w-full min-h-[52px] text-left p-2.5 rounded border transition-colors duration-150 cursor-pointer ${
                   isSelected
                     ? 'bg-[#292017] border-[#D4A64A]'
                     : 'bg-[#171512] hover:bg-[#292017]/65 border-[#76513A]/55'
                 }`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     <KingdomEmblem kingdomId={rId} size={22} className="shrink-0" />
                     <span className="font-bold text-[#F2E8D5] truncate">{rConfig.name}</span>
                   </div>
                   <span
-                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border shrink-0 ${getStateBadgeClass(
+                    className={`text-[9px] sm:text-[10px] font-semibold px-1.5 py-0.5 rounded border shrink-0 ${getStateBadgeClass(
                       rel?.state || 'neutral',
                       discovered,
                     )}`}
@@ -167,7 +167,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
                     {stateLabel}
                   </span>
                 </div>
-                <div className="text-[11px] text-[#B8AA96] mt-1 flex items-center justify-between">
+                <div className="text-[10px] sm:text-[11px] text-[#B8AA96] mt-1 flex items-center justify-between gap-1">
                   <span className="truncate">{rConfig.specialisation}</span>
                   <span className="font-mono-num text-[#D4A64A] shrink-0">
                     {discovered ? `Score ${Math.round(rel?.score ?? 0)}` : 'Unexplored'}
@@ -217,7 +217,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
                 <button
                   type="button"
                   onClick={handleEnvoy}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+                  className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
                 >
                   <Send className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Dispatch Envoy & Gift (100 Gold)</span>
@@ -319,7 +319,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
             <button
               type="button"
               onClick={handleEnvoy}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#171512] hover:bg-[#362a1e] border border-[#A77A32]/65 text-[11px] font-semibold text-[#D4A64A] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#171512] hover:bg-[#362a1e] border border-[#A77A32]/65 text-[11px] font-semibold text-[#D4A64A] transition-colors duration-150 cursor-pointer whitespace-nowrap"
             >
               <Send className="w-3 h-3" aria-hidden="true" />
               <span>Send Envoy (100g)</span>
@@ -331,7 +331,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
               <button
                 type="button"
                 onClick={() => handlePropose('non_aggression')}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#171512] hover:bg-[#362a1e] border border-[#76513A] text-[11px] font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+                className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#171512] hover:bg-[#362a1e] border border-[#76513A] text-[11px] font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
                 <Shield className="w-3 h-3 text-[#B8AA96]" aria-hidden="true" />
                 <span>Non-Aggression</span>
@@ -339,7 +339,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
               <button
                 type="button"
                 onClick={() => handlePropose('trade_pact')}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#182824] hover:bg-[#203832] border border-[#4ca86b]/55 text-[11px] font-semibold text-[#c9f7dc] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+                className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#182824] hover:bg-[#203832] border border-[#4ca86b]/55 text-[11px] font-semibold text-[#c9f7dc] transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
                 <Handshake className="w-3 h-3" aria-hidden="true" />
                 <span>Trade Pact</span>
@@ -347,7 +347,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
               <button
                 type="button"
                 onClick={() => handlePropose('defensive_alliance')}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#D4A64A]/65 text-[11px] font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+                className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#D4A64A]/65 text-[11px] font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
                 <Shield className="w-3 h-3 text-[#D4A64A]" aria-hidden="true" />
                 <span>Defensive Alliance</span>
@@ -359,7 +359,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
             <button
               type="button"
               onClick={handlePeace}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#22452c] hover:bg-[#2c5a39] border border-[#6ee7b7]/50 text-[11px] font-semibold text-[#e6ffef] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#22452c] hover:bg-[#2c5a39] border border-[#6ee7b7]/50 text-[11px] font-semibold text-[#e6ffef] transition-colors duration-150 cursor-pointer whitespace-nowrap"
             >
               <Handshake className="w-3 h-3" aria-hidden="true" />
               <span>Propose Peace Accord</span>
@@ -370,7 +370,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
             <button
               type="button"
               onClick={handleWar}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#5c1b18] hover:bg-[#75221e] border border-[#f87171]/50 text-[11px] font-semibold text-[#fde2e0] transition-colors duration-150 cursor-pointer whitespace-nowrap ml-auto"
+              className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#5c1b18] hover:bg-[#75221e] border border-[#f87171]/50 text-[11px] font-semibold text-[#fde2e0] transition-colors duration-150 cursor-pointer whitespace-nowrap sm:ml-auto"
             >
               <Swords className="w-3 h-3" aria-hidden="true" />
               <span>Declare War</span>

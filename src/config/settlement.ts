@@ -348,6 +348,9 @@ export function generateInitialSettlement(
   const buildings: BuildingEntity[] = initialStructures.map((spec) => {
     const bp = BUILDING_CATALOG[spec.archetype];
     const y = sampleTerrainHeight(spec.x, spec.z, region, seed);
+    const isEastFarm = spec.id === 'bld_farm_east';
+    const isSouthFarm = spec.id === 'bld_farm_southeast';
+    const isFarm = spec.archetype === 'cultivated_farm';
     return {
       id: spec.id,
       category: 'building',
@@ -372,6 +375,14 @@ export function generateInitialSettlement(
       assignedWorkerIds: [],
       maxWorkers: bp.maxWorkers,
       linkedNodeId: null,
+      ...(isFarm
+        ? {
+            soilMoisture: isEastFarm ? 0.24 : isSouthFarm ? 0.62 : 0.45,
+            cropGrowthProgress: isEastFarm ? 0.28 : isSouthFarm ? 0.58 : 0.35,
+            cropGrowthStage: (isEastFarm ? 1 : isSouthFarm ? 2 : 1) as 0 | 1 | 2 | 3 | 4,
+            lastWateredSec: 0,
+          }
+        : {}),
     };
   });
 
@@ -814,6 +825,10 @@ export function generateInitialSettlement(
       assignedWorkerIds: [],
       maxWorkers: farmBp.maxWorkers,
       linkedNodeId: null,
+      soilMoisture: 0.56,
+      cropGrowthProgress: 0.42,
+      cropGrowthStage: 2,
+      lastWateredSec: 0,
     });
 
     // Watch Post

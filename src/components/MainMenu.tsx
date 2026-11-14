@@ -42,8 +42,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
         className="absolute inset-0 bg-gradient-to-r from-[#171512]/96 via-[#171512]/72 to-transparent"
       />
 
-      <main className="relative z-10 flex-1 flex items-center px-6 sm:px-12 lg:px-16 py-6">
-        <div className="pointer-events-auto w-full max-w-md space-y-6">
+      <main className="relative z-10 flex-1 flex items-center px-5 sm:px-12 lg:px-16 py-4 sm:py-6 overflow-y-auto">
+        <div className="pointer-events-auto w-full max-w-md space-y-5 sm:space-y-6">
           <AkanuTitleLockup />
 
           <p className="text-sm text-[#B8AA96] leading-relaxed max-w-sm">
@@ -214,8 +214,11 @@ export const MainMenu: React.FC<MainMenuProps> = ({
       )}
 
       {/* Single flat, borderless control-hint line in bottom safe margin */}
-      <div className="relative z-10 px-6 sm:px-12 lg:px-16 pb-4 pt-2">
-        <p className="text-xs text-[#B8AA96] tracking-wide">
+      <div className="relative z-10 px-5 sm:px-12 lg:px-16 pb-3 sm:pb-4 pt-2">
+        <p className="sm:hidden text-[11px] text-[#B8AA96] tracking-wide">
+          Drag Pan · Pinch Zoom · Tap Command
+        </p>
+        <p className="hidden sm:block text-xs text-[#B8AA96] tracking-wide">
           WASD / Drag Move · Q / E or Right-Drag Rotate · Scroll / Pinch Zoom · Left-Click Inspect · Esc Pause
         </p>
       </div>

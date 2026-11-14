@@ -66,14 +66,18 @@ export const ConstructionPanel: React.FC<ConstructionPanelProps> = ({
   return (
     <div className="space-y-3 text-xs">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Building Categories">
+        <div
+          className="flex overflow-x-auto akanu-scroll pb-1 gap-1.5 sm:flex-wrap sm:overflow-visible sm:pb-0 sm:gap-1"
+          role="group"
+          aria-label="Building Categories"
+        >
           {CATEGORIES.map((cat) => (
             <button
               key={cat}
               type="button"
               aria-pressed={category === cat}
               onClick={() => setCategory(cat)}
-              className={`px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer transition-colors duration-150 whitespace-nowrap ${
+              className={`min-h-[42px] sm:min-h-0 px-3 sm:px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer transition-colors duration-150 whitespace-nowrap shrink-0 ${
                 category === cat
                   ? 'bg-[#D4A64A] text-[#171512]'
                   : 'bg-[#292017] hover:bg-[#362a1e] border border-[#76513A]/55 text-[#F2E8D5]'
@@ -157,7 +161,7 @@ export const ConstructionPanel: React.FC<ConstructionPanelProps> = ({
                   disabled={!canAfford}
                   onClick={() => onStartPlacement(arch)}
                   aria-label={`Build ${bp.name}`}
-                  className={`w-full inline-flex items-center justify-center gap-1.5 py-2 rounded text-xs font-semibold transition-colors duration-150 whitespace-nowrap ${
+                  className={`w-full min-h-[44px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 py-2 rounded text-xs font-semibold transition-colors duration-150 whitespace-nowrap ${
                     canAfford
                       ? 'bg-[#D4A64A] hover:bg-[#e2b65a] text-[#171512] cursor-pointer'
                       : 'bg-[#171512] border border-[#76513A]/40 text-[#B8AA96]/60 cursor-not-allowed'

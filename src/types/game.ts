@@ -37,6 +37,8 @@ export type CharacterAnimationState =
   | 'running'
   | 'chopping'
   | 'farming'
+  | 'drawing_water'
+  | 'watering_crops'
   | 'mining'
   | 'building'
   | 'hunting'
@@ -96,6 +98,14 @@ export type CombatState =
   | 'braced'
   | 'routing'
   | 'operating';
+
+export type FarmerHydroPhase =
+  | 'idle'
+  | 'heading_to_water'
+  | 'drawing_water'
+  | 'carrying_water'
+  | 'watering_crops'
+  | 'tending_harvest';
 
 export type VillagerTaskType =
   | 'idle'
@@ -290,6 +300,9 @@ export interface CharacterEntity {
   workProgress: number;
   productivity: number;
   preferredResource: ResourceKey | null;
+  hydroPhase?: FarmerHydroPhase;
+  waterTarget?: { x: number; z: number } | null;
+  carriedWater?: number;
   // Phase 3 Military & Combat State
   isMilitary?: boolean;
   militaryClass?: MilitaryUnitClass;
@@ -371,6 +384,11 @@ export interface BuildingEntity {
   assignedWorkerIds: string[];
   maxWorkers: number;
   linkedNodeId?: string | null;
+  // Hydro-farming soil moisture & crop growth stages (0..1 & 0..4)
+  soilMoisture?: number;
+  cropGrowthProgress?: number;
+  cropGrowthStage?: 0 | 1 | 2 | 3 | 4;
+  lastWateredSec?: number;
   // Phase 3 Military Recruitment & Fortification State
   recruitmentQueue?: RecruitmentQueueItem[];
   rallyPoint?: { x: number; z: number } | null;

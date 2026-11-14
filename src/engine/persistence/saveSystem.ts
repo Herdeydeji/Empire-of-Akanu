@@ -60,6 +60,7 @@ export function cloneWorldEntities(entities: {
       position: { ...c.position },
       waypoints: c.waypoints.map((w) => ({ ...w })),
       moveTarget: c.moveTarget ? { ...c.moveTarget } : null,
+      waterTarget: c.waterTarget ? { ...c.waterTarget } : null,
       formationOffset: c.formationOffset ? { ...c.formationOffset } : undefined,
     })),
     resourceNodes: entities.resourceNodes.map((n) => ({

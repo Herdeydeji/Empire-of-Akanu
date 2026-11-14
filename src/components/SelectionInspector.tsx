@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Ban,
+  ChevronDown,
+  ChevronUp,
   Crosshair,
   Focus,
   Hammer,
@@ -104,6 +106,13 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
   onSetFormation,
   onSetStance,
 }) => {
+  const [mobileExpanded, setMobileExpanded] = useState(false);
+  const firstId = selectedEntities[0]?.id ?? null;
+
+  useEffect(() => {
+    setMobileExpanded(false);
+  }, [firstId]);
+
   if (selectedEntities.length === 0) return null;
 
   const firstEntity = selectedEntities[0];
@@ -120,33 +129,33 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
     return (
       <section
         aria-label="Foreign Kingdom Entity Information"
-        className="pointer-events-auto w-full max-w-3xl max-h-[38vh] overflow-y-auto akanu-scroll rounded-md bg-[#171512]/96 border border-[#a8553a]/75 px-4 py-3 shadow-xl space-y-2"
+        className="pointer-events-auto w-full max-w-3xl max-h-[34vh] md:max-h-[38vh] overflow-y-auto akanu-scroll rounded-md bg-[#171512]/96 border border-[#a8553a]/75 px-3 sm:px-4 py-2.5 sm:py-3 shadow-xl space-y-2"
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-start gap-3 min-w-0">
-            <KingdomEmblem kingdomId={firstEntity.kingdomId} size={38} className="shrink-0 mt-0.5" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
+          <div className="flex items-start gap-2.5 sm:gap-3 min-w-0">
+            <KingdomEmblem kingdomId={firstEntity.kingdomId} size={32} className="shrink-0 mt-0.5" />
             <div className="min-w-0 space-y-0.5">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-[#e49b7d]">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:text-xs text-[#e49b7d]">
                 <span className="font-semibold uppercase tracking-wider">
                   {isChar
                     ? firstEntity.isMilitary
                       ? `Foreign Military · ${firstEntity.militaryClass ?? 'Soldier'}`
                       : `Foreign Citizen · ${firstEntity.role}`
-                    : `Foreign ${firstEntity.buildingClass} Structure`}
+                    : `Foreign ${firstEntity.buildingClass}`}
                 </span>
                 <span aria-hidden="true">·</span>
                 <span>{foreignKingdom.name}</span>
               </div>
-              <h3 className="font-display text-base font-bold text-[#F2E8D5] truncate">
+              <h3 className="font-display text-sm sm:text-base font-bold text-[#F2E8D5] truncate">
                 {firstEntity.name}
               </h3>
-              <p className="text-xs text-[#B8AA96]">
+              <p className="text-[11px] sm:text-xs text-[#B8AA96] truncate">
                 {isChar
                   ? `${firstEntity.activityLabel || 'Operating independently'} · HP ${curHp}/${maxHp}`
                   : `${
                       firstEntity.constructionState === 'completed'
-                        ? 'Operational Structure'
-                        : `Under Construction (${Math.round(firstEntity.constructionProgress * 100)}%)`
+                        ? 'Operational'
+                        : `Building (${Math.round(firstEntity.constructionProgress * 100)}%)`
                     } · Integrity ${curHp}/${maxHp}`}
               </p>
             </div>
@@ -156,7 +165,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
             <button
               type="button"
               onClick={() => onFocusEntity(firstEntity.id)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
             >
               <Focus className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Focus</span>
@@ -164,10 +173,11 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
             <button
               type="button"
               onClick={onClearSelection}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              aria-label="Deselect"
+              className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
             >
               <X className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Deselect</span>
+              <span className="hidden sm:inline">Deselect</span>
             </button>
           </div>
         </div>
@@ -179,7 +189,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
               style={{ width: `${Math.max(2, hpPct)}%` }}
             />
           </div>
-          <p className="text-[11px] text-[#B8AA96]">
+          <p className="hidden sm:block text-[11px] text-[#B8AA96]">
             Read-only intelligence view. Use your own soldiers to attack hostile targets or open Diplomacy to manage relations.
           </p>
         </div>
@@ -209,36 +219,43 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
     return (
       <section
         aria-label="Selected Military Command Panel"
-        className="pointer-events-auto w-full max-w-4xl max-h-[42vh] overflow-y-auto akanu-scroll rounded-md bg-[#171512]/96 border border-[#c44536]/80 px-3.5 py-2.5 shadow-xl space-y-2"
+        className="pointer-events-auto w-full max-w-4xl max-h-[38vh] md:max-h-[42vh] overflow-y-auto akanu-scroll rounded-md bg-[#171512]/96 border border-[#c44536]/80 px-3 sm:px-3.5 py-2.5 shadow-xl space-y-2"
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="min-w-0 space-y-0.5">
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#e07a5f]">
-              <span className="font-semibold uppercase tracking-wider">
-                {isMulti
-                  ? `Military Regiment (${selectedMilitary.length} Soldiers)`
-                  : `${bp?.category ?? 'Military'} · ${bp?.name ?? primary.name}`}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span className="text-[#B8AA96]">{KINGDOMS[primary.kingdomId].name}</span>
-              <span aria-hidden="true">·</span>
-              <span className="font-mono-num text-[#86efac]">Morale {avgMorale}%</span>
-              {primary.isMounted && <span className="text-[#B8AA96]">· Mounted</span>}
-              {primary.isCommander && <span className="text-[#D4A64A]">· Commander (+18m Aura)</span>}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[#e07a5f] min-w-0">
+                <span className="font-semibold uppercase tracking-wider truncate">
+                  {isMulti
+                    ? `Regiment (${selectedMilitary.length})`
+                    : `${bp?.name ?? primary.name}`}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span className="font-mono-num text-[#86efac]">Morale {avgMorale}%</span>
+                <span className="hidden md:inline text-[#B8AA96]">· {KINGDOMS[primary.kingdomId].name}</span>
+              </div>
+              <button
+                type="button"
+                onClick={onClearSelection}
+                aria-label="Deselect Military"
+                className="sm:hidden w-8 h-8 inline-flex items-center justify-center rounded bg-[#292017] border border-[#76513A] text-[#F2E8D5] shrink-0 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
             </div>
 
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
               <h3 className="font-display text-sm sm:text-base font-bold text-[#F2E8D5] truncate">
                 {isMulti
-                  ? `${selectedMilitary.length} Units in ${currentFormation.toUpperCase()} Formation`
+                  ? `${selectedMilitary.length} Units · ${currentFormation.toUpperCase()}`
                   : primary.name}
               </h3>
-              <span className="text-xs text-[#fca5a5]">
+              <span className="text-[11px] sm:text-xs text-[#fca5a5] truncate">
                 {primary.activityLabel || 'Ready for orders'}
               </span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#B8AA96]">
+            <div className={`${mobileExpanded ? 'flex' : 'hidden md:flex'} flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#B8AA96]`}>
               <span>
                 Health:{' '}
                 <strong className="font-mono-num text-[#86efac]">
@@ -270,7 +287,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
               type="button"
               aria-pressed={touchCommandMode === 'attack'}
               onClick={() => onSetTouchCommandMode(touchCommandMode === 'attack' ? 'select' : 'attack')}
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer whitespace-nowrap border transition-colors duration-150 ${
+              className={`min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer whitespace-nowrap border transition-colors duration-150 ${
                 touchCommandMode === 'attack'
                   ? 'bg-[#991b1b] border-[#f87171] text-[#F2E8D5]'
                   : 'bg-[#3b1212] hover:bg-[#521919] border-[#ef4444]/45 text-[#fca5a5]'
@@ -283,7 +300,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
               type="button"
               aria-pressed={touchCommandMode === 'move'}
               onClick={() => onSetTouchCommandMode(touchCommandMode === 'move' ? 'select' : 'move')}
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer whitespace-nowrap border transition-colors duration-150 ${
+              className={`min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer whitespace-nowrap border transition-colors duration-150 ${
                 touchCommandMode === 'move'
                   ? 'bg-[#2f7d4a] border-[#6ee7b7] text-[#F2E8D5]'
                   : 'bg-[#292017] hover:bg-[#362a1e] border-[#76513A] text-[#F2E8D5]'
@@ -295,7 +312,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
             <button
               type="button"
               onClick={onCancelVillagerTask}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#2c1915] hover:bg-[#3d221c] border border-[#a15243]/50 text-xs font-medium text-[#f2c6bd] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              className={`${mobileExpanded ? 'inline-flex' : 'hidden sm:inline-flex'} min-h-[44px] sm:min-h-0 items-center gap-1 px-2.5 py-1.5 rounded bg-[#2c1915] hover:bg-[#3d221c] border border-[#a15243]/50 text-xs font-medium text-[#f2c6bd] transition-colors duration-150 cursor-pointer whitespace-nowrap`}
             >
               <OctagonX className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Halt</span>
@@ -303,16 +320,25 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
             <button
               type="button"
               onClick={() => onFocusEntity(primary.id)}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
             >
               <Focus className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Focus</span>
             </button>
             <button
               type="button"
+              onClick={() => setMobileExpanded((v) => !v)}
+              aria-expanded={mobileExpanded}
+              className="md:hidden min-h-[44px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] border border-[#A77A32]/65 text-xs font-semibold text-[#D4A64A] cursor-pointer whitespace-nowrap ml-auto"
+            >
+              {mobileExpanded ? <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" /> : <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" />}
+              <span>{mobileExpanded ? 'Less' : 'Tactics'}</span>
+            </button>
+            <button
+              type="button"
               onClick={onClearSelection}
               aria-label="Deselect Military"
-              className="inline-flex items-center justify-center p-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
+              className="hidden sm:inline-flex items-center justify-center p-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
@@ -320,7 +346,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
         </div>
 
         {/* Tactical Formations & Combat Stance Controls */}
-        <div className="pt-1.5 border-t border-[#76513A]/45 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className={`${mobileExpanded ? 'flex' : 'hidden md:flex'} pt-1.5 border-t border-[#76513A]/45 flex-wrap items-center justify-between gap-2 text-xs`}>
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] uppercase tracking-wider text-[#B8AA96]">Formation:</span>
             {FORMATION_OPTIONS.map((f) => (
@@ -329,7 +355,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
                 type="button"
                 aria-pressed={currentFormation === f.id}
                 onClick={() => onSetFormation?.(f.id)}
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold cursor-pointer transition-colors duration-150 whitespace-nowrap ${
+                className={`min-h-[40px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 sm:px-2 py-1 rounded text-[11px] font-semibold cursor-pointer transition-colors duration-150 whitespace-nowrap ${
                   currentFormation === f.id
                     ? 'bg-[#D4A64A] text-[#171512]'
                     : 'bg-[#292017] hover:bg-[#362a1e] border border-[#76513A]/60 text-[#F2E8D5]'
@@ -349,7 +375,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
                 type="button"
                 aria-pressed={currentStance === st}
                 onClick={() => onSetStance?.(st)}
-                className={`px-2 py-1 rounded text-[11px] capitalize font-medium cursor-pointer transition-colors duration-150 whitespace-nowrap ${
+                className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-2 py-1 rounded text-[11px] capitalize font-medium cursor-pointer transition-colors duration-150 whitespace-nowrap ${
                   currentStance === st
                     ? 'bg-[#b91c1c] text-[#F2E8D5]'
                     : 'bg-[#292017] hover:bg-[#362a1e] border border-[#76513A]/60 text-[#B8AA96]'
@@ -394,39 +420,42 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
     return (
       <section
         aria-label="Selected Villager Command Panel"
-        className="pointer-events-auto w-full max-w-4xl max-h-[42vh] overflow-y-auto akanu-scroll rounded-md bg-[#171512]/96 border border-[#A77A32]/75 px-3.5 py-2.5 shadow-xl space-y-2"
+        className="pointer-events-auto w-full max-w-4xl max-h-[38vh] md:max-h-[42vh] overflow-y-auto akanu-scroll rounded-md bg-[#171512]/96 border border-[#A77A32]/75 px-3 sm:px-3.5 py-2.5 shadow-xl space-y-2"
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="min-w-0 space-y-0.5">
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#D4A64A]">
-              <span>
-                {isMulti
-                  ? `Workforce Group (${selectedVillagers.length} Villagers)`
-                  : `Economic Citizen · ${primary.role}`}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span className="text-[#B8AA96]">{KINGDOMS[primary.kingdomId].name}</span>
-              {!isMulti && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="font-mono-num text-[#B8AA96]">
-                    Productivity {Math.round(primary.productivity * 100)}%
-                  </span>
-                </>
-              )}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[#D4A64A] min-w-0">
+                <span className="truncate">
+                  {isMulti
+                    ? `Workforce (${selectedVillagers.length})`
+                    : `${primary.role} · ${Math.round(primary.productivity * 100)}%`}
+                </span>
+                <span className="hidden md:inline text-[#B8AA96]">
+                  · {KINGDOMS[primary.kingdomId].name}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onClearSelection}
+                aria-label="Deselect Villagers"
+                className="sm:hidden w-8 h-8 inline-flex items-center justify-center rounded bg-[#292017] border border-[#76513A] text-[#F2E8D5] shrink-0 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
             </div>
 
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
               <h3 className="font-display text-sm sm:text-base font-bold text-[#F2E8D5] truncate">
                 {isMulti ? `${selectedVillagers.length} Villagers Selected` : primary.name}
               </h3>
-              <span className="text-xs text-[#D4A64A]">
+              <span className="text-[11px] sm:text-xs text-[#D4A64A] truncate">
                 {isMulti ? `Roles: ${roleSummary}` : primary.activityLabel}
               </span>
             </div>
 
             {!isMulti ? (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#B8AA96]">
+              <div className={`${mobileExpanded ? 'flex' : 'hidden md:flex'} flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#B8AA96]`}>
                 <span>
                   Workplace:{' '}
                   <strong className="font-semibold text-[#F2E8D5]">
@@ -448,10 +477,10 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
                 </span>
               </div>
             ) : (
-              <div className="text-xs text-[#B8AA96]">
+              <div className={`${mobileExpanded ? 'block' : 'hidden md:block'} text-xs text-[#B8AA96]`}>
                 Combined Cargo:{' '}
                 <strong className="font-mono-num text-[#F2E8D5]">{totalCarried}</strong> units ·
-                Right-click any tree, deposit, farm, or construction site to command the group.
+                Tap any tree, deposit, farm, or construction site to command.
               </div>
             )}
           </div>
@@ -463,7 +492,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
               onClick={() =>
                 onSetTouchCommandMode(touchCommandMode === 'move' ? 'select' : 'move')
               }
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer whitespace-nowrap border transition-colors duration-150 ${
+              className={`min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer whitespace-nowrap border transition-colors duration-150 ${
                 touchCommandMode === 'move'
                   ? 'bg-[#2f7d4a] border-[#6ee7b7] text-[#F2E8D5]'
                   : 'bg-[#292017] hover:bg-[#362a1e] border-[#76513A] text-[#F2E8D5]'
@@ -478,7 +507,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
               onClick={() =>
                 onSetTouchCommandMode(touchCommandMode === 'assign' ? 'select' : 'assign')
               }
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer whitespace-nowrap border transition-colors duration-150 ${
+              className={`min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer whitespace-nowrap border transition-colors duration-150 ${
                 touchCommandMode === 'assign'
                   ? 'bg-[#D4A64A] border-[#F2E8D5]/60 text-[#171512]'
                   : 'bg-[#292017] hover:bg-[#362a1e] border-[#76513A] text-[#F2E8D5]'
@@ -490,7 +519,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
             <button
               type="button"
               onClick={onCancelVillagerTask}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#2c1915] hover:bg-[#3d221c] border border-[#a15243]/50 text-xs font-medium text-[#f2c6bd] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              className={`${mobileExpanded ? 'inline-flex' : 'hidden sm:inline-flex'} min-h-[44px] sm:min-h-0 items-center gap-1 px-2.5 py-1.5 rounded bg-[#2c1915] hover:bg-[#3d221c] border border-[#a15243]/50 text-xs font-medium text-[#f2c6bd] transition-colors duration-150 cursor-pointer whitespace-nowrap`}
             >
               <OctagonX className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Stop</span>
@@ -498,16 +527,25 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
             <button
               type="button"
               onClick={() => onFocusEntity(primary.id)}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
             >
               <Focus className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Focus</span>
             </button>
             <button
               type="button"
+              onClick={() => setMobileExpanded((v) => !v)}
+              aria-expanded={mobileExpanded}
+              className="md:hidden min-h-[44px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] border border-[#A77A32]/65 text-xs font-semibold text-[#D4A64A] cursor-pointer whitespace-nowrap ml-auto"
+            >
+              {mobileExpanded ? <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" /> : <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" />}
+              <span>{mobileExpanded ? 'Less' : 'Roles'}</span>
+            </button>
+            <button
+              type="button"
               onClick={onClearSelection}
               aria-label="Deselect Villagers"
-              className="inline-flex items-center justify-center p-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
+              className="hidden sm:inline-flex items-center justify-center p-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
@@ -515,7 +553,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
         </div>
 
         {/* Direct Occupation Reassignment Strip */}
-        <div className="pt-1.5 border-t border-[#76513A]/45 flex flex-wrap items-center gap-1">
+        <div className={`${mobileExpanded ? 'flex' : 'hidden md:flex'} pt-1.5 border-t border-[#76513A]/45 flex-wrap items-center gap-1.5`}>
           <span className="text-[11px] uppercase tracking-wider text-[#B8AA96] mr-1">
             Assign Role:
           </span>
@@ -530,7 +568,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
                 type="button"
                 aria-pressed={isActive}
                 onClick={() => onAssignOccupation(btn.role, btn.preferredResource)}
-                className={`px-2 py-1 rounded text-[11px] font-semibold cursor-pointer transition-colors duration-150 whitespace-nowrap ${
+                className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-2 py-1 rounded text-[11px] font-semibold cursor-pointer transition-colors duration-150 whitespace-nowrap ${
                   isActive
                     ? 'bg-[#D4A64A] text-[#171512]'
                     : 'bg-[#292017] hover:bg-[#362a1e] border border-[#76513A]/55 text-[#F2E8D5]'
@@ -569,30 +607,39 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
     return (
       <section
         aria-label="Selected Building Information"
-        className="pointer-events-auto w-full max-w-3xl max-h-[44vh] overflow-y-auto akanu-scroll rounded-md bg-[#171512]/96 border border-[#A77A32]/75 px-4 py-3 shadow-xl space-y-2.5"
+        className="pointer-events-auto w-full max-w-3xl max-h-[40vh] md:max-h-[44vh] overflow-y-auto akanu-scroll rounded-md bg-[#171512]/96 border border-[#A77A32]/75 px-3 sm:px-4 py-2.5 sm:py-3 shadow-xl space-y-2"
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
           <div className="min-w-0 space-y-0.5">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-[#D4A64A]">
-              <span>{bld.buildingClass} Structure</span>
-              <span aria-hidden="true">·</span>
-              <span className="text-[#B8AA96]">{KINGDOMS[bld.kingdomId].name}</span>
-              <span aria-hidden="true">·</span>
-              <span className="font-mono-num text-[#B8AA96]">
-                Integrity {Math.round(bld.integrity)}/{bld.maxIntegrity}
-              </span>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:text-xs text-[#D4A64A] min-w-0">
+                <span>{bld.buildingClass}</span>
+                <span aria-hidden="true">·</span>
+                <span className="font-mono-num text-[#B8AA96]">
+                  HP {Math.round(bld.integrity)}/{bld.maxIntegrity}
+                </span>
+                <span className="hidden md:inline text-[#B8AA96]">· {KINGDOMS[bld.kingdomId].name}</span>
+              </div>
+              <button
+                type="button"
+                onClick={onClearSelection}
+                aria-label="Deselect Building"
+                className="sm:hidden w-8 h-8 inline-flex items-center justify-center rounded bg-[#292017] border border-[#76513A] text-[#F2E8D5] shrink-0 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
             </div>
 
-            <h3 className="font-display text-base sm:text-lg font-bold text-[#F2E8D5] truncate">
+            <h3 className="font-display text-sm sm:text-lg font-bold text-[#F2E8D5] truncate">
               {bld.name}
             </h3>
 
-            <p className="text-xs text-[#B8AA96]">
+            <p className="text-[11px] sm:text-xs text-[#B8AA96] truncate">
               {isUnderConstruction ? bld.statusText : blueprint.economicRoleSummary}
             </p>
 
             {!isUnderConstruction && bld.maxWorkers > 0 && (
-              <p className="text-xs text-[#F2E8D5] font-mono-num">
+              <p className={`${mobileExpanded ? 'block' : 'hidden md:block'} text-xs text-[#F2E8D5] font-mono-num`}>
                 Active Workers: {bld.assignedWorkerIds.length}/{bld.maxWorkers}
               </p>
             )}
@@ -603,7 +650,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
               <button
                 type="button"
                 onClick={() => onDispatchWorkerToEntity(bld.id)}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#2d6a3e] hover:bg-[#38824d] border border-[#6ee7b7]/40 text-xs font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+                className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#2d6a3e] hover:bg-[#38824d] border border-[#6ee7b7]/40 text-xs font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
                 {isUnderConstruction ? (
                   <Hammer className="w-3.5 h-3.5" aria-hidden="true" />
@@ -617,7 +664,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
               <button
                 type="button"
                 onClick={() => onCancelConstruction(bld.id)}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#3a1d18] hover:bg-[#4d2620] border border-[#c86454]/50 text-xs font-medium text-[#f5c2b8] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+                className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#3a1d18] hover:bg-[#4d2620] border border-[#c86454]/50 text-xs font-medium text-[#f5c2b8] transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
                 <Ban className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Cancel Site</span>
@@ -626,15 +673,26 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
             <button
               type="button"
               onClick={() => onFocusEntity(bld.id)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
             >
               <Focus className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Focus</span>
             </button>
+            {availableRecruits.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setMobileExpanded((v) => !v)}
+                aria-expanded={mobileExpanded}
+                className="md:hidden min-h-[44px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] border border-[#A77A32]/65 text-xs font-semibold text-[#D4A64A] cursor-pointer whitespace-nowrap ml-auto"
+              >
+                {mobileExpanded ? <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" /> : <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" />}
+                <span>{mobileExpanded ? 'Less' : 'Recruit'}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onClearSelection}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+              className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
             >
               <X className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Deselect</span>
@@ -661,9 +719,65 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
           </div>
         )}
 
+        {!isUnderConstruction && bld.archetype === 'cultivated_farm' && (
+          (() => {
+            const moisturePct = Math.round((bld.soilMoisture ?? 0.35) * 100);
+            const growthPct = Math.round((bld.cropGrowthProgress ?? 0.25) * 100);
+            const stageNames = [
+              'Seeded Furrows',
+              'Tender Sprouts',
+              'Leafy Stalks',
+              'Ripening Panicles',
+              'Golden Harvest Ready',
+            ];
+            const stageIdx = Math.max(0, Math.min(4, bld.cropGrowthStage ?? 1));
+            const assignedFarmers = allEntities.filter(
+              (e): e is CharacterEntity =>
+                e.category === 'character' &&
+                e.assignedBuildingId === bld.id &&
+                e.role === 'Farmer',
+            );
+            const hydroText =
+              assignedFarmers.find((f) => f.hydroPhase && f.hydroPhase !== 'idle')?.activityLabel ??
+              (moisturePct < 40 ? 'Needs river irrigation' : 'Hydrated & growing');
+
+            return (
+              <div className="pt-1.5 border-t border-[#76513A]/45 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[#B8AA96] font-mono-num">
+                    <span>Soil Moisture</span>
+                    <span className={moisturePct < 35 ? 'text-[#fbbf24]' : 'text-[#67e8f9]'}>
+                      {moisturePct}%
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 rounded bg-[#292017] overflow-hidden">
+                    <div
+                      className="h-full bg-[#38bdf8] transition-all duration-200"
+                      style={{ width: `${Math.max(4, moisturePct)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[#B8AA96] font-mono-num">
+                    <span>{stageNames[stageIdx]}</span>
+                    <span className="text-[#86efac]">{growthPct}%</span>
+                  </div>
+                  <div className="w-full h-1.5 rounded bg-[#292017] overflow-hidden">
+                    <div
+                      className="h-full bg-[#84cc16] transition-all duration-200"
+                      style={{ width: `${Math.max(4, growthPct)}%` }}
+                    />
+                  </div>
+                </div>
+                <p className="sm:col-span-2 text-[11px] text-[#D4A64A] truncate">{hydroText}</p>
+              </div>
+            );
+          })()
+        )}
+
         {/* Phase 3 Military Recruitment Yard: Units & Progress Queue */}
         {availableRecruits.length > 0 && (
-          <div className="pt-2 border-t border-[#76513A]/45 space-y-2">
+          <div className={`${mobileExpanded ? 'block' : 'hidden md:block'} pt-2 border-t border-[#76513A]/45 space-y-2`}>
             <div className="flex items-center justify-between text-xs text-[#D4A64A]">
               <span className="font-semibold uppercase tracking-wider">Muster & Recruitment</span>
               {bld.recruitmentQueue && bld.recruitmentQueue.length > 0 && (
@@ -790,27 +904,36 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
   return (
     <section
       aria-label="Selected Resource Node Information"
-      className="pointer-events-auto w-full max-w-3xl rounded-md bg-[#171512]/96 border border-[#A77A32]/75 px-4 py-3 shadow-xl space-y-2"
+      className="pointer-events-auto w-full max-w-3xl rounded-md bg-[#171512]/96 border border-[#A77A32]/75 px-3 sm:px-4 py-2.5 sm:py-3 shadow-xl space-y-2"
     >
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
         <div className="min-w-0 space-y-0.5">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-[#D4A64A]">
-            <span className="capitalize">{node.nodeKind.replace(/_/g, ' ')}</span>
-            <span aria-hidden="true">·</span>
-            <span className="text-[#B8AA96]">{node.richnessLabel}</span>
-            <span aria-hidden="true">·</span>
-            <span className="font-mono-num text-[#86efac]">
-              {node.depleted
-                ? 'Depleted'
-                : `${Math.round(node.remainingYield)}/${node.maxYield} ${node.resourceType}`}
-            </span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:text-xs text-[#D4A64A] min-w-0">
+              <span className="capitalize">{node.nodeKind.replace(/_/g, ' ')}</span>
+              <span aria-hidden="true">·</span>
+              <span className="font-mono-num text-[#86efac]">
+                {node.depleted
+                  ? 'Depleted'
+                  : `${Math.round(node.remainingYield)}/${node.maxYield} ${node.resourceType}`}
+              </span>
+              <span className="hidden md:inline text-[#B8AA96]">· {node.richnessLabel}</span>
+            </div>
+            <button
+              type="button"
+              onClick={onClearSelection}
+              aria-label="Deselect Resource"
+              className="sm:hidden w-8 h-8 inline-flex items-center justify-center rounded bg-[#292017] border border-[#76513A] text-[#F2E8D5] shrink-0 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
           </div>
 
-          <h3 className="font-display text-base sm:text-lg font-bold text-[#F2E8D5] truncate">
+          <h3 className="font-display text-sm sm:text-lg font-bold text-[#F2E8D5] truncate">
             {node.name}
           </h3>
 
-          <p className="text-xs text-[#B8AA96]">{node.description}</p>
+          <p className="hidden sm:block text-xs text-[#B8AA96]">{node.description}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 shrink-0">
@@ -818,7 +941,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
             type="button"
             onClick={() => onDispatchWorkerToEntity(node.id)}
             disabled={node.depleted}
-            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-semibold transition-colors duration-150 whitespace-nowrap ${
+            className={`min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-semibold transition-colors duration-150 whitespace-nowrap ${
               node.depleted
                 ? 'bg-[#292017] text-[#B8AA96]/50 cursor-not-allowed'
                 : 'bg-[#2d6a3e] hover:bg-[#38824d] border border-[#6ee7b7]/40 text-[#F2E8D5] cursor-pointer'
@@ -830,7 +953,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
           <button
             type="button"
             onClick={() => onFocusEntity(node.id)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+            className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-xs font-semibold text-[#171512] transition-colors duration-150 cursor-pointer whitespace-nowrap"
           >
             <Focus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Focus</span>
@@ -838,7 +961,7 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
           <button
             type="button"
             onClick={onClearSelection}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+            className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
           >
             <X className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Deselect</span>
@@ -846,12 +969,12 @@ export const SelectionInspector: React.FC<SelectionInspectorProps> = ({
         </div>
       </div>
 
-      <div className="space-y-1 pt-1">
+      <div className="space-y-1 pt-0.5">
         <div className="flex justify-between text-[11px] text-[#B8AA96] font-mono-num">
           <span>Remaining Seam Yield</span>
           <span>{yieldPct}%</span>
         </div>
-        <div className="w-full h-2 rounded bg-[#292017] overflow-hidden">
+        <div className="w-full h-1.5 sm:h-2 rounded bg-[#292017] overflow-hidden">
           <div
             className={`h-full transition-all duration-150 ${
               node.depleted ? 'bg-[#991b1b]' : 'bg-[#D4A64A]'

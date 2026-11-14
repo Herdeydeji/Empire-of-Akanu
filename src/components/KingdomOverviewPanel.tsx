@@ -36,6 +36,7 @@ export const KingdomOverviewPanel: React.FC<KingdomOverviewPanelProps> = ({
   onClose,
 }) => {
   const [expandedLogsId, setExpandedLogsId] = useState<KingdomId | null>(null);
+  const [mobileView, setMobileView] = useState<'realms' | 'chronicle'>('realms');
   const allIds: KingdomId[] = ['oru', 'zambara', 'kemetra', 'aseka', 'nambara'];
   const playerIntelMap = aiKingdoms[playerKingdomId]?.knownIntelligence;
 
@@ -56,22 +57,22 @@ export const KingdomOverviewPanel: React.FC<KingdomOverviewPanelProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label="Akanu World Intelligence and Chronicle"
-      className="fixed inset-0 z-40 pointer-events-auto flex items-center justify-center bg-[#0d0b09]/85 p-3 sm:p-5"
+      className="fixed inset-0 z-40 pointer-events-auto flex items-center justify-center bg-[#0d0b09]/85 p-2.5 sm:p-5"
     >
-      <div className="relative w-full max-w-5xl max-h-[88vh] flex flex-col bg-[#171512] border border-[#A77A32]/65 rounded-lg shadow-2xl text-[#F2E8D5] overflow-hidden">
+      <div className="relative w-full max-w-5xl max-h-[92vh] sm:max-h-[88vh] flex flex-col bg-[#171512] border border-[#A77A32]/65 rounded-lg shadow-2xl text-[#F2E8D5] overflow-hidden">
         {/* Top Header */}
-        <div className="flex items-center justify-between gap-4 px-5 py-3.5 border-b border-[#76513A]/60 bg-[#292017]">
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 sm:py-3.5 border-b border-[#76513A]/60 bg-[#292017] shrink-0">
           <div className="min-w-0">
-            <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
               <Eye className="w-4 h-4 text-[#D4A64A] shrink-0" aria-hidden="true" />
-              <h2 className="font-display text-lg sm:text-xl font-bold text-[#F2E8D5]">
+              <h2 className="font-display text-base sm:text-xl font-bold text-[#F2E8D5]">
                 Akanu World Intelligence & Chronicle
               </h2>
               <span className="text-xs font-medium text-[#D4A64A]">
                 · AI {DIFFICULTY_LABELS[difficultyLevel]}
               </span>
             </div>
-            <p className="text-xs text-[#B8AA96] mt-0.5">
+            <p className="hidden sm:block text-xs text-[#B8AA96] mt-0.5">
               Reconnaissance estimates, territorial zones, kingdom stability, and historical chronicle.
             </p>
           </div>
@@ -79,17 +80,57 @@ export const KingdomOverviewPanel: React.FC<KingdomOverviewPanelProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close World Overview"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#F2E8D5] bg-[#171512] hover:bg-[#362a1e] rounded border border-[#76513A] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+            className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#F2E8D5] bg-[#171512] hover:bg-[#362a1e] rounded border border-[#76513A] transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0"
           >
             <X className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Close</span>
           </button>
         </div>
 
+        {/* Mobile (< lg) Sub-Tab Switcher: Realms vs Chronicle */}
+        <div
+          role="tablist"
+          aria-label="World Overview Sections"
+          className="lg:hidden grid grid-cols-2 gap-1.5 p-2 bg-[#110f0d] border-b border-[#76513A]/45 shrink-0"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileView === 'realms'}
+            onClick={() => setMobileView('realms')}
+            className={`min-h-[42px] px-3 rounded inline-flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer ${
+              mobileView === 'realms'
+                ? 'bg-[#D4A64A] text-[#171512]'
+                : 'bg-[#292017] border border-[#76513A]/50 text-[#F2E8D5]'
+            }`}
+          >
+            <Shield className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Realms ({allIds.length})</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileView === 'chronicle'}
+            onClick={() => setMobileView('chronicle')}
+            className={`min-h-[42px] px-3 rounded inline-flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer ${
+              mobileView === 'chronicle'
+                ? 'bg-[#D4A64A] text-[#171512]'
+                : 'bg-[#292017] border border-[#76513A]/50 text-[#F2E8D5]'
+            }`}
+          >
+            <ScrollText className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Chronicle ({visibleEvents.length})</span>
+          </button>
+        </div>
+
         {/* Main Body */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-[#76513A]/45 overflow-hidden">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 lg:divide-x divide-[#76513A]/45 overflow-hidden">
           {/* Kingdom Intelligence Matrix */}
-          <div className="lg:col-span-7 p-4 sm:p-5 overflow-y-auto akanu-scroll space-y-3">
+          <div
+            className={`lg:col-span-7 p-3.5 sm:p-5 overflow-y-auto akanu-scroll space-y-3 ${
+              mobileView === 'realms' ? 'block' : 'hidden lg:block'
+            }`}
+          >
             <h3 className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#D4A64A] tracking-wide">
               <Shield className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Sovereign Power Matrix (Fog-of-Knowledge Active)</span>
@@ -241,7 +282,11 @@ export const KingdomOverviewPanel: React.FC<KingdomOverviewPanelProps> = ({
           </div>
 
           {/* World Event Chronicle */}
-          <div className="lg:col-span-5 p-4 sm:p-5 bg-[#110f0d] overflow-y-auto akanu-scroll flex flex-col">
+          <div
+            className={`lg:col-span-5 p-3.5 sm:p-5 bg-[#110f0d] overflow-y-auto akanu-scroll flex-col ${
+              mobileView === 'chronicle' ? 'flex' : 'hidden lg:flex'
+            }`}
+          >
             <h3 className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#D4A64A] tracking-wide mb-3">
               <ScrollText className="w-3.5 h-3.5" aria-hidden="true" />
               <span>World Event Chronicle</span>

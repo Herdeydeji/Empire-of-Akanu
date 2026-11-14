@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { KINGDOM_LIST, KINGDOMS } from '../../config/kingdoms';
 import { REGION_LIST, REGIONS } from '../../config/regions';
 import { findValidNearbyPlot, generateInitialSettlement } from '../../config/settlement';
-import { getRiverCenterZ, isWaterAt, sampleTerrainHeight } from '../math/noise';
+import { findNearestRiverShorePoint, getRiverCenterZ, isWaterAt, sampleTerrainHeight } from '../math/noise';
+import { createInitialVillageLivestock, stepVillageLivestock } from './livestockSim';
 import {
   createInitialCameraRig,
   focusCameraOnPoint,
@@ -1060,6 +1061,93 @@ test('Progressive 6-stage building assembly thresholds map progress 0..1 into st
   assert.equal(getConstructionStageFromProgress(0.85), 5);
   assert.equal(getConstructionStageFromProgress(1), 5);
 });
+
+test('findNearestRiverShorePoint resolves dry walkable bank adjacent to river water across all 5 regions', () => {
+  for (const reg of REGION_LIST) {
+    const shore = findNearestRiverShorePoint(8, 2, reg, 4819);
+    assert.equal(
+      isWaterAt(shore.bankX, shore.bankZ, reg, 4819),
+      false,
+      `Bank anchor in ${reg.name} must be dry ground`,
+    );
+    assert.equal(
+      isWaterAt(shore.waterX, shore.waterZ, reg, 4819),
+      true,
+      `Water dip anchor in ${reg.name} must lie in real river/coastal water`,
+    );
+  }
+});
+
+test('Farmer executes real hydro-farming cycle: fetches river water, pours onto dry farm, grows crops through stages, and harvests', () => {
+  const region = REGIONS.golden_savannah;
+  const seed = 4819;
+  const settlement = generateInitialSettlement('oru', region, seed);
+  const runtime = createInitialEconomyRuntime({
+    kingdomId: 'oru',
+    region,
+    seed,
+    resources: { ...KINGDOMS.oru.startingResources },
+    buildings: settlement.buildings,
+    characters: settlement.characters,
+    resourceNodes: settlement.resourceNodes,
+  });
+
+  const farm = runtime.buildings.find((b) => b.id === 'bld_farm_east')!;
+  const farmer = runtime.characters.find((c) => c.id === 'char_farmer_kofi')!;
+  assert.ok(farm && farmer);
+  commandVillagersToEntity([farmer], farm, runtime);
+
+  farm.soilMoisture = 0.2;
+  farm.cropGrowthProgress = 0.22;
+  farm.cropGrowthStage = 1;
+
+  const observedPhases = new Set<string>();
+  let maxMoistureSeen = farm.soilMoisture;
+  const startFood = runtime.resources.food;
+
+  for (let step = 0; step < 900; step++) {
+    stepEconomyAndVillagers(runtime, 0.05);
+    if (farmer.hydroPhase) observedPhases.add(farmer.hydroPhase);
+    maxMoistureSeen = Math.max(maxMoistureSeen, farm.soilMoisture ?? 0);
+  }
+
+  assert.ok(observedPhases.has('heading_to_water'), 'Farmer should walk to river bank');
+  assert.ok(observedPhases.has('drawing_water'), 'Farmer should kneel/dip jar into river water');
+  assert.ok(observedPhases.has('carrying_water'), 'Farmer should carry filled water vessel back to farm');
+  assert.ok(observedPhases.has('watering_crops'), 'Farmer should pour water onto dry farm soil');
+  assert.ok(maxMoistureSeen >= 0.85, `Pouring river water must hydrate soilMoisture >= 0.85 (saw ${maxMoistureSeen})`);
+  assert.ok(
+    (farm.cropGrowthStage ?? 0) >= 2 || runtime.resources.food > startFood,
+    'Hydrated crops must advance growth stages and produce real harvested food',
+  );
+});
+
+test('Village livestock herds spawn with cattle, goats, and chickens and roam dry pasture safely', () => {
+  const region = REGIONS.golden_savannah;
+  const seed = 4819;
+  const settlement = generateInitialSettlement('oru', region, seed);
+  const livestock = createInitialVillageLivestock(settlement.buildings, region, seed, 'oru');
+
+  const cattle = livestock.filter((a) => a.kind === 'cattle');
+  const goats = livestock.filter((a) => a.kind === 'goat');
+  const chickens = livestock.filter((a) => a.kind === 'chicken');
+  assert.ok(cattle.length >= 5, 'Village should include grazing cattle');
+  assert.ok(goats.length >= 5, 'Village should include goats');
+  assert.ok(chickens.length >= 8, 'Village should include pecking chickens');
+
+  for (let i = 0; i < 160; i++) {
+    stepVillageLivestock(livestock, settlement.buildings, 0.05, region, seed, i * 0.05);
+  }
+
+  for (const animal of livestock) {
+    assert.equal(
+      isWaterAt(animal.position.x, animal.position.z, region, seed),
+      false,
+      `Livestock ${animal.id} must stay on dry land`,
+    );
+  }
+});
+
 
 
 

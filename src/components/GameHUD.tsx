@@ -13,7 +13,9 @@ import {
   Hammer,
   Handshake,
   Home,
+  LayoutGrid,
   Menu,
+  Pause,
   RotateCcw,
   RotateCw,
   Save,
@@ -21,6 +23,7 @@ import {
   ScrollText,
   Settings,
   Shield,
+  SlidersHorizontal,
   Swords,
   Users,
   Volume2,
@@ -181,6 +184,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [showOverview, setShowOverview] = useState<boolean>(false);
   const [activeCamPreset, setActiveCamPreset] = useState<'settlement' | 'overview' | 'battle'>('settlement');
+  const [mobileHubOpen, setMobileHubOpen] = useState<boolean>(false);
+  const [mobileHubTab, setMobileHubTab] = useState<NavigationTab>('kingdom');
+  const [mobileQuickOpen, setMobileQuickOpen] = useState<boolean>(false);
+  const [mobileStatsExpanded, setMobileStatsExpanded] = useState<boolean>(false);
 
   React.useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -226,6 +233,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   const handleCycleVillager = () => {
     if (villagers.length === 0) return;
     setActiveTab(null);
+    setMobileHubOpen(false);
+    setMobileQuickOpen(false);
     const currentId = selectedEntities[0]?.id;
     const currentIdx = currentId
       ? villagers.findIndex((v) => v.id === currentId)
@@ -241,8 +250,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
   const handleBeginPlacement = (archetype: BuildingArchetype) => {
     onStartBuildingPlacement(archetype);
-    // Collapse construction drawer automatically for clear 3D terrain visibility
+    // Collapse construction drawer & mobile hub automatically for clear 3D terrain visibility
     setActiveTab(null);
+    setMobileHubOpen(false);
   };
 
   const handlePresetClick = (preset: 'settlement' | 'overview' | 'battle') => {
@@ -254,12 +264,394 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     }
   };
 
+  const renderDepartmentContent = (tab: NavigationTab, isMobileHub: boolean) => {
+    const closeAfterWorldAction = () => {
+      if (isMobileHub) {
+        setMobileHubOpen(false);
+      } else {
+        setActiveTab(null);
+      }
+    };
+
+    if (tab === 'kingdom') {
+      return (
+        <EconomyPanel
+          gameData={gameData}
+          allEntities={allEntities}
+          onAdjustWorkforce={onAdjustWorkforce}
+          onSelectVillagersByRole={(role) => {
+            closeAfterWorldAction();
+            onSelectVillagersByRole(role);
+          }}
+          onSelectAndFocusEntity={(id) => {
+            closeAfterWorldAction();
+            onSelectEntityById(id, false);
+            onFocusEntity(id);
+          }}
+          onChangeRegionLive={onChangeRegionLive}
+        />
+      );
+    }
+
+    if (tab === 'construction') {
+      return (
+        <ConstructionPanel
+          kingdomId={gameData.kingdomId}
+          resources={gameData.resources}
+          activePlacementArchetype={placementPreview.archetype}
+          onStartPlacement={handleBeginPlacement}
+        />
+      );
+    }
+
+    if (tab === 'military') {
+      const militaryUnits = allEntities.filter(
+        (e): e is CharacterEntity =>
+          e.category === 'character' &&
+          e.kingdomId === gameData.kingdomId &&
+          Boolean(e.militaryClass),
+      );
+      const militaryBuildings = allEntities.filter(
+        (e): e is BuildingEntity =>
+          e.category === 'building' &&
+          e.kingdomId === gameData.kingdomId &&
+          [
+            'barracks_compound',
+            'archery_grounds',
+            'cavalry_stables',
+            'weapon_workshop',
+            'royal_palace',
+          ].includes(e.archetype),
+      );
+      const totalQueued = militaryBuildings.reduce(
+        (acc, b) => acc + (b.recruitmentQueue?.length || 0),
+        0,
+      );
+      const hourlyFoodUpkeep = militaryUnits.reduce((acc, u) => {
+        const bp = u.militaryClass ? MILITARY_UNIT_CATALOG[u.militaryClass] : null;
+        return acc + (bp?.upkeepPerMinute?.food ?? 0) * 60;
+      }, 0);
+      const hourlyGoldUpkeep = militaryUnits.reduce((acc, u) => {
+        const bp = u.militaryClass ? MILITARY_UNIT_CATALOG[u.militaryClass] : null;
+        return acc + (bp?.upkeepPerMinute?.gold ?? 0) * 60;
+      }, 0);
+
+      return (
+        <div className="space-y-3 text-xs">
+          {KINGDOM_MILITARY_BONUSES[gameData.kingdomId] && (
+            <div className="rounded bg-[#292017] border border-[#A77A32]/60 p-2.5 flex items-start gap-3">
+              <Shield className="w-5 h-5 text-[#D4A64A] shrink-0 mt-0.5" aria-hidden="true" />
+              <div>
+                <div className="font-semibold text-[#F2E8D5]">
+                  {kingdom.name} Doctrine: {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].name}
+                </div>
+                <div className="text-[#B8AA96] text-[11px] leading-relaxed mt-0.5">
+                  {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].summary}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-[#292017]/80 border border-[#76513A]/60 rounded p-2.5">
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+                <div>
+                  <span className="text-[#B8AA96] uppercase text-[10px] tracking-wider block">
+                    Standing Soldiers
+                  </span>
+                  <span className="font-mono-num font-bold text-base text-[#F2E8D5]">
+                    {militaryUnits.length}
+                  </span>
+                </div>
+                <div className="border-l border-[#76513A]/60 pl-3">
+                  <span className="text-[#B8AA96] uppercase text-[10px] tracking-wider block">
+                    Queued
+                  </span>
+                  <span className="font-mono-num font-bold text-sm text-[#D4A64A]">
+                    {totalQueued}
+                  </span>
+                </div>
+                <div className="border-l border-[#76513A]/60 pl-3">
+                  <span className="text-[#B8AA96] uppercase text-[10px] tracking-wider block">
+                    Hourly Upkeep
+                  </span>
+                  <span className="font-mono-num font-bold text-sm text-[#fca5a5]">
+                    -{Math.round(hourlyFoodUpkeep)} Food / -{Math.round(hourlyGoldUpkeep)} Gold
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  closeAfterWorldAction();
+                  onSelectMilitaryUnits?.('all');
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-[#171512] font-semibold text-xs cursor-pointer shadow-sm transition-colors duration-150 whitespace-nowrap min-h-[44px] sm:min-h-0"
+              >
+                <Swords className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Select Entire Army</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+              {(
+                [
+                  'infantry',
+                  'spearman',
+                  'archer',
+                  'cavalry',
+                  'royal_guard',
+                  'scout',
+                  'siege_engineer',
+                  'commander',
+                ] as MilitaryUnitClass[]
+              ).map((uClass) => {
+                const count = militaryUnits.filter((u) => u.militaryClass === uClass).length;
+                const bp = MILITARY_UNIT_CATALOG[uClass];
+                return (
+                  <button
+                    key={uClass}
+                    type="button"
+                    onClick={() => {
+                      closeAfterWorldAction();
+                      onSelectMilitaryUnits?.(uClass);
+                    }}
+                    className={`p-2 rounded text-left border transition-colors duration-150 cursor-pointer min-h-[44px] ${
+                      count > 0
+                        ? 'bg-[#292017] border-[#A77A32] hover:border-[#D4A64A]'
+                        : 'bg-[#171512] border-[#76513A]/40 opacity-75'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-semibold text-[#F2E8D5] truncate">{bp.name}</span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded font-mono-num text-[11px] font-bold shrink-0 ${
+                          count > 0 ? 'bg-[#D4A64A] text-[#171512]' : 'bg-[#292017] text-[#B8AA96]'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-[#B8AA96] mt-0.5 line-clamp-1 font-mono-num">
+                      {bp.tacticalRole} · Atk {bp.attackDamage} · HP {bp.health}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="pt-2">
+              <div className="text-[11px] font-semibold text-[#D4A64A] uppercase tracking-wider mb-1.5">
+                Military Facilities & Production Lines
+              </div>
+              {militaryBuildings.length === 0 ? (
+                <div className="p-3 rounded bg-[#292017]/55 border border-[#76513A]/50 text-[#B8AA96] text-center">
+                  No dedicated military buildings constructed yet. Open{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isMobileHub) {
+                        setMobileHubTab('construction');
+                      } else {
+                        setActiveTab('construction');
+                      }
+                    }}
+                    className="text-[#D4A64A] underline font-medium cursor-pointer"
+                  >
+                    Construction
+                  </button>{' '}
+                  to place Barracks, Archery Grounds, or Cavalry Stables.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {militaryBuildings.map((b) => (
+                    <div
+                      key={b.id}
+                      className="p-2.5 rounded bg-[#292017]/80 border border-[#76513A]/60 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-[#F2E8D5] text-xs truncate">{b.name}</div>
+                        <div className="text-[10px] text-[#B8AA96] font-mono-num">
+                          Status: {b.constructionState === 'completed' ? 'Active' : 'Under Construction'} · Queued:{' '}
+                          {b.recruitmentQueue?.length || 0}/5
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeAfterWorldAction();
+                          onSelectEntityById(b.id, false);
+                          onFocusEntity(b.id);
+                        }}
+                        className="px-3 py-1.5 rounded bg-[#171512] hover:bg-[#362a1e] border border-[#76513A] text-[11px] text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap min-h-[40px] sm:min-h-0"
+                      >
+                        Manage
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (tab === 'research') {
+      return (
+        <div className="space-y-3 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="rounded bg-[#292017]/80 border border-[#76513A]/60 p-3 space-y-1">
+              <div className="inline-flex items-center gap-1.5 font-semibold text-[#D4A64A]">
+                <Crown className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>{kingdom.name} Economic Doctrine</span>
+              </div>
+              <p className="text-[#F2E8D5] leading-relaxed">
+                {KINGDOM_ECONOMIC_BONUSES[gameData.kingdomId].summary}
+              </p>
+            </div>
+
+            <div className="rounded bg-[#292017]/80 border border-[#76513A]/60 p-3 space-y-1">
+              <div className="inline-flex items-center gap-1.5 font-semibold text-[#D4A64A]">
+                <Shield className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>
+                  Martial Tradition: {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].name}
+                </span>
+              </div>
+              <p className="text-[#F2E8D5] leading-relaxed">
+                {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].summary}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded bg-[#292017]/65 border border-[#76513A]/55 p-3 space-y-1.5">
+            <div className="inline-flex items-center gap-1.5 font-semibold text-[#D4A64A]">
+              <Compass className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>{region.name} Environmental Adaptation</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-[#B8AA96]">
+              {region.strategicTraits.map((trait) => (
+                <div
+                  key={trait}
+                  className="rounded bg-[#171512] border border-[#76513A]/45 px-2.5 py-1.5 text-[#F2E8D5]"
+                >
+                  {trait}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded bg-[#292017]/65 border border-[#76513A]/55 p-3 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold text-[#D4A64A]">
+                Realm Ascension Track (Current: {gameData.progressionStage})
+              </span>
+              <span className="font-mono-num text-[11px] text-[#B8AA96]">
+                {gameData.population.current} Citizens · {completedBuildings.length} Completed Buildings ·{' '}
+                {hasCompletedPalace ? 'Royal Palace Built' : 'Royal Palace Pending'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5">
+              {REALM_STAGES.map((item, idx) => {
+                const reached = idx <= currentStageIndex;
+                const current = idx === currentStageIndex;
+                return (
+                  <div
+                    key={item.stage}
+                    className={`rounded border p-2 space-y-0.5 ${
+                      current
+                        ? 'bg-[#292017] border-[#D4A64A] text-[#F2E8D5]'
+                        : reached
+                          ? 'bg-[#171512] border-[#4ca86b]/55 text-[#d7f7e1]'
+                          : 'bg-[#110f0d] border-[#76513A]/40 text-[#B8AA96]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1 font-semibold text-[11px]">
+                      {reached ? (
+                        <CheckCircle2
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            current ? 'text-[#D4A64A]' : 'text-[#86efac]'
+                          }`}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <Circle className="w-3.5 h-3.5 shrink-0 text-[#76513A]" aria-hidden="true" />
+                      )}
+                      <span className="truncate">{item.stage}</span>
+                    </div>
+                    <div className="text-[10px] leading-snug opacity-85">{item.requirement}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (tab === 'diplomacy') {
+      return (
+        <DiplomacyPanel
+          playerKingdomId={gameData.kingdomId}
+          relations={diplomacyRelations || ({} as Record<KingdomId, DiplomaticRelation>)}
+          events={worldEventsData || []}
+          onProposeTreaty={
+            onProposeTreaty || (() => ({ accepted: false, reason: 'Diplomacy unavailable.' }))
+          }
+          onSendEnvoy={onSendEnvoy}
+          onProposePeace={onProposePeace}
+          onDeclareWar={onDeclareWar || (() => {})}
+          onClose={closeAfterWorldAction}
+        />
+      );
+    }
+
+    const activeTradePacts = Object.values(diplomacyRelations || {}).filter((rel) =>
+      rel.activeTreaties.some((t) => t.kind === 'trade_pact' && t.durationRemainingSec > 0),
+    ).length;
+
+    return (
+      <div className="space-y-2.5 text-xs text-[#F2E8D5] leading-relaxed">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
+            <div className="text-[10px] text-[#B8AA96]">Active Marketplaces</div>
+            <div className="font-mono-num text-base font-bold text-[#F2E8D5]">{completedMarkets}</div>
+          </div>
+          <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
+            <div className="text-[10px] text-[#B8AA96]">Assigned Traders</div>
+            <div className="font-mono-num text-base font-bold text-[#F2E8D5]">{activeTraders}</div>
+          </div>
+          <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
+            <div className="text-[10px] text-[#B8AA96]">Trade Pacts</div>
+            <div className="font-mono-num text-base font-bold text-[#D4A64A]">
+              {activeTradePacts} (+{activeTradePacts * 15}%)
+            </div>
+          </div>
+          <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
+            <div className="text-[10px] text-[#B8AA96]">Gold Rate</div>
+            <div className="font-mono-num text-base font-bold text-[#86efac]">
+              +{Math.round(gameData.rates.productionPerMinute.gold)}/min
+            </div>
+          </div>
+        </div>
+        <p className="text-[#B8AA96]">
+          Assign villagers as <strong className="text-[#D4A64A]">Traders</strong>, construct{' '}
+          <strong className="text-[#D4A64A]">Marketplaces</strong>, and negotiate{' '}
+          <strong className="text-[#D4A64A]">Trade Pacts</strong> in Diplomacy to amplify kingdom
+          tariff revenues.
+        </p>
+      </div>
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between">
       {/* TOP STACK: RESOURCE HEADER + PLACEMENT BANNER + NOTIFICATIONS */}
       <div className="w-full flex flex-col items-center">
-        <div className="pointer-events-auto w-full bg-[#171512]/96 border-b border-[#A77A32]/55 px-3 sm:px-5 py-1.5 sm:py-2 shadow-lg">
-          <div className="flex items-center justify-between gap-2 sm:gap-4">
+        {/* DESKTOP & TABLET (md+) FULL TOP BAR */}
+        <div className="pointer-events-auto hidden md:block w-full bg-[#171512]/96 border-b border-[#A77A32]/55 px-5 py-2 shadow-lg">
+          <div className="flex items-center justify-between gap-4">
             {/* Left: Sovereign Kingdom Identity */}
             <div className="flex items-center gap-2.5 min-w-0">
               <button
@@ -273,7 +665,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               </button>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <div className="font-display text-xs sm:text-sm font-bold text-[#F2E8D5] truncate">
+                  <div className="font-display text-sm font-bold text-[#F2E8D5] truncate">
                     {gameData.playerKingdomName}
                   </div>
                   {atWarCount > 0 && (
@@ -304,7 +696,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             {/* Center (Desktop md+): Live Resources (Qty/Cap + Net/min) + Population */}
             <div
               aria-label="Kingdom Resources"
-              className="hidden md:flex items-center gap-3.5 lg:gap-5 py-0.5"
+              className="flex items-center gap-3.5 lg:gap-5 py-0.5"
             >
               {(
                 [
@@ -397,18 +789,17 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 onClick={() => setShowOverview(true)}
                 aria-label="World Intelligence Overview"
                 title="World Intelligence Ledger & History"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/65 text-xs font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap min-h-[36px] sm:min-h-0"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/65 text-xs font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
                 <ScrollText className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
-                <span className="hidden sm:inline">World Overview</span>
-                <span className="sm:hidden">World</span>
+                <span>World Overview</span>
               </button>
               <button
                 type="button"
                 onClick={onSaveGame}
                 aria-label="Save Kingdom"
                 title="Save Kingdom"
-                className="hidden sm:inline-flex items-center gap-1 justify-center px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center gap-1 justify-center px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
                 <Save className="w-3.5 h-3.5 text-[#A77A32]" aria-hidden="true" />
                 <span>Save</span>
@@ -422,7 +813,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 }}
                 aria-label={audioMuted ? 'Unmute Audio' : 'Mute Audio'}
                 title={audioMuted ? 'Unmute Audio (M)' : 'Mute Audio (M)'}
-                className="w-9 h-9 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
+                className="w-8 h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
               >
                 {audioMuted ? (
                   <VolumeX className="w-4 h-4 text-[#fca5a5]" aria-hidden="true" />
@@ -439,7 +830,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 }}
                 aria-label="Open Settings"
                 title="Settings"
-                className="w-9 h-9 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
+                className="w-8 h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
               >
                 <Settings className="w-4 h-4" aria-hidden="true" />
               </button>
@@ -452,52 +843,169 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 }}
                 aria-label="Pause Menu"
                 title="Pause Menu (Esc)"
-                className="inline-flex items-center gap-1 px-2.5 h-9 sm:h-8 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/65 text-xs font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center gap-1 px-2.5 h-8 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/65 text-xs font-semibold text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
                 <Menu className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
                 <span>Menu</span>
               </button>
             </div>
           </div>
+        </div>
 
-          {/* Mobile (< md) Full 6-Stat Resource Strip: Zero Clipping */}
-          <div
-            aria-label="Mobile Kingdom Resources"
-            className="grid grid-cols-6 gap-1 md:hidden pt-1.5 mt-1.5 border-t border-[#76513A]/45 text-center"
+        {/* MOBILE (< md) ULTRA-MINIMAL SINGLE-ROW TOP BAR */}
+        <div className="pointer-events-auto md:hidden w-full bg-[#171512]/96 border-b border-[#A77A32]/55 px-2.5 h-12 flex items-center justify-between gap-2 shadow-md">
+          <button
+            type="button"
+            onClick={onFocusSettlement}
+            aria-label="Center camera on settlement"
+            className="w-9 h-9 inline-flex items-center justify-center shrink-0 cursor-pointer"
           >
-            {(
-              [
-                { key: 'food', val: gameData.resources.food },
-                { key: 'wood', val: gameData.resources.wood },
-                { key: 'stone', val: gameData.resources.stone },
-                { key: 'iron', val: gameData.resources.iron },
-                { key: 'gold', val: gameData.resources.gold },
-              ] as const
-            ).map((item) => (
-              <div key={item.key} className="flex items-center justify-center gap-1">
-                <ResourceIcon type={item.key} size={13} />
-                <span className="font-mono-num text-[11px] font-semibold text-[#F2E8D5]">
-                  {Math.round(item.val)}
-                </span>
-              </div>
-            ))}
-            <div className="flex items-center justify-center gap-1">
-              <ResourceIcon type="population" size={13} />
-              <span className="font-mono-num text-[11px] font-semibold text-[#F2E8D5]">
+            <KingdomEmblem kingdomId={kingdom.id} size={28} />
+          </button>
+
+          {/* Tap-to-Expand Compact Resource Strip (Food · Wood · Gold · Pop) */}
+          <button
+            type="button"
+            onClick={() => setMobileStatsExpanded((s) => !s)}
+            aria-expanded={mobileStatsExpanded}
+            aria-label="Kingdom Resources Summary — Tap to inspect all stockpiles"
+            className="flex-1 min-w-0 h-9 px-2 rounded bg-[#292017]/80 border border-[#76513A]/55 flex items-center justify-between gap-1.5 cursor-pointer"
+          >
+            <div className="flex items-center justify-around flex-1 gap-1.5 min-w-0 font-mono-num text-[11px] font-semibold text-[#F2E8D5]">
+              <span className="inline-flex items-center gap-1 shrink-0">
+                <ResourceIcon type="food" size={12} />
+                {Math.round(gameData.resources.food)}
+              </span>
+              <span className="inline-flex items-center gap-1 shrink-0">
+                <ResourceIcon type="wood" size={12} />
+                {Math.round(gameData.resources.wood)}
+              </span>
+              <span className="inline-flex items-center gap-1 shrink-0">
+                <ResourceIcon type="gold" size={12} />
+                {Math.round(gameData.resources.gold)}
+              </span>
+              <span className="inline-flex items-center gap-1 shrink-0 text-[#D4A64A]">
+                <ResourceIcon type="population" size={12} />
                 {gameData.population.current}/{gameData.population.capacity}
               </span>
             </div>
-          </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {atWarCount > 0 && <Swords className="w-3.5 h-3.5 text-[#fca5a5]" aria-hidden="true" />}
+              {isLowFoodAlert && (
+                <AlertTriangle className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
+              )}
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-[#B8AA96] transition-transform duration-150 ${
+                  mobileStatsExpanded ? 'rotate-180' : ''
+                }`}
+                aria-hidden="true"
+              />
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenPause}
+            aria-label="Pause Game"
+            className="w-9 h-9 inline-flex items-center justify-center rounded bg-[#292017] border border-[#A77A32]/65 text-[#F2E8D5] shrink-0 cursor-pointer"
+          >
+            <Pause className="w-4 h-4 text-[#D4A64A]" aria-hidden="true" />
+          </button>
         </div>
+
+        {/* MOBILE EXPANDED RESOURCE & REALM POPOVER */}
+        {mobileStatsExpanded && (
+          <div
+            role="region"
+            aria-label="Expanded Mobile Kingdom Stockpiles"
+            className="pointer-events-auto md:hidden w-[calc(100%-1rem)] mt-1.5 rounded-md bg-[#171512]/96 border border-[#A77A32]/65 p-3 shadow-xl space-y-2 text-xs"
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-[#76513A]/45 pb-1.5">
+              <div className="min-w-0">
+                <div className="font-display font-bold text-sm text-[#F2E8D5] truncate">
+                  {gameData.playerKingdomName}
+                </div>
+                <div className="text-[11px] text-[#B8AA96] truncate">
+                  {kingdom.name} · {region.name} · {gameData.progressionStage}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileStatsExpanded(false)}
+                aria-label="Collapse resource summary"
+                className="w-8 h-8 inline-flex items-center justify-center rounded bg-[#292017] border border-[#76513A] text-[#F2E8D5] cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-5 gap-1.5 text-center">
+              {(
+                [
+                  { key: 'food', label: 'Food' },
+                  { key: 'wood', label: 'Wood' },
+                  { key: 'stone', label: 'Stone' },
+                  { key: 'iron', label: 'Iron' },
+                  { key: 'gold', label: 'Gold' },
+                ] as const
+              ).map((item) => {
+                const val = Math.round(gameData.resources[item.key]);
+                const cap = Math.round(gameData.capacities[item.key]);
+                const net = Math.round(gameData.rates.netPerMinute[item.key]);
+                return (
+                  <div
+                    key={item.key}
+                    className="rounded bg-[#292017]/80 border border-[#76513A]/45 py-1.5 px-1"
+                  >
+                    <div className="flex items-center justify-center gap-1 text-[10px] text-[#B8AA96]">
+                      <ResourceIcon type={item.key} size={11} />
+                      <span>{item.label}</span>
+                    </div>
+                    <div className="font-mono-num text-xs font-bold text-[#F2E8D5] mt-0.5">{val}</div>
+                    <div className="font-mono-num text-[9px] text-[#B8AA96]">/{cap}</div>
+                    {net !== 0 && (
+                      <div
+                        className={`font-mono-num text-[9px] ${
+                          net > 0 ? 'text-[#86efac]' : 'text-[#fca5a5]'
+                        }`}
+                      >
+                        {net > 0 ? `+${net}` : net}/m
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-[#B8AA96] pt-0.5">
+              <span className="font-mono-num">
+                Happiness {Math.round(gameData.population.happiness)}% · Idle{' '}
+                {gameData.population.unemployedCount}
+              </span>
+              {gameData.population.unemployedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileStatsExpanded(false);
+                    onSelectVillagersByRole('idle');
+                  }}
+                  className="px-2 py-1 rounded bg-[#292017] border border-[#A77A32]/65 text-[#D4A64A] font-semibold cursor-pointer"
+                >
+                  Select Idle
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Interactive 3D Building Placement Banner */}
         {placementPreview.active && placementPreview.archetype && (
           <div
             role="region"
             aria-label="Building Placement Controls"
-            className="pointer-events-auto mt-2 mx-2 px-3.5 py-2 rounded-md bg-[#171512]/96 border border-[#D4A64A]/75 shadow-xl flex flex-wrap items-center justify-center gap-2.5 text-xs"
+            className="pointer-events-auto mt-2 mx-2 px-3 py-2 rounded-md bg-[#171512]/96 border border-[#D4A64A]/75 shadow-xl flex flex-wrap items-center justify-center gap-2 text-xs"
           >
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-center">
               <span className="font-display font-bold text-[#F2E8D5]">
                 Placing {BUILDING_CATALOG[placementPreview.archetype].name}
               </span>
@@ -507,7 +1015,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 }`}
               >
                 {placementPreview.valid
-                  ? 'Valid foundation — click terrain or Confirm'
+                  ? 'Valid foundation — tap terrain or Confirm'
                   : placementPreview.reason ?? 'Invalid terrain'}
               </span>
             </div>
@@ -515,16 +1023,17 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               <button
                 type="button"
                 onClick={onRotatePlacementPreview}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap"
+                className="min-h-[44px] sm:min-h-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
                 <RotateCw className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
-                <span>Rotate 45° (R)</span>
+                <span>Rotate 45°</span>
+                <span className="hidden sm:inline">(R)</span>
               </button>
               <button
                 type="button"
                 disabled={!placementPreview.valid}
                 onClick={onConfirmPlacement}
-                className={`px-3 py-1.5 rounded font-semibold transition-colors duration-150 whitespace-nowrap ${
+                className={`min-h-[44px] sm:min-h-0 px-3 py-1.5 rounded font-semibold transition-colors duration-150 whitespace-nowrap ${
                   placementPreview.valid
                     ? 'bg-[#2f854e] hover:bg-[#3a9c5e] text-[#F2E8D5] cursor-pointer'
                     : 'bg-[#292017] text-[#B8AA96]/50 cursor-not-allowed'
@@ -535,7 +1044,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               <button
                 type="button"
                 onClick={() => onStartBuildingPlacement(null)}
-                className="px-2.5 py-1.5 rounded bg-[#361d18] hover:bg-[#492720] border border-[#b45a4b]/55 text-[#f6cbc2] font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap"
+                className="min-h-[44px] sm:min-h-0 px-2.5 py-1.5 rounded bg-[#361d18] hover:bg-[#492720] border border-[#b45a4b]/55 text-[#f6cbc2] font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap"
               >
                 Cancel
               </button>
@@ -543,16 +1052,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           </div>
         )}
 
-        {/* Contextual Economy Notifications (Top-Right Perimeter, Zero Blur) */}
+        {/* Contextual Economy Notifications (Top-Right Perimeter on Desktop, 1 Clean Banner on Mobile) */}
         {notifications.length > 0 && (
           <div
             aria-live="polite"
-            className="pointer-events-auto self-end mr-3 mt-2 w-full max-w-sm space-y-1.5 px-2 sm:px-0"
+            className="pointer-events-auto self-center md:self-end md:mr-3 mt-2 w-[calc(100%-1rem)] md:w-full max-w-sm space-y-1.5"
           >
-            {notifications.slice(-3).map((n) => (
+            {notifications.slice(-3).map((n, idx, arr) => (
               <div
                 key={n.id}
-                className={`rounded bg-[#171512]/96 border px-3 py-1.5 shadow-lg flex items-center justify-between gap-2 text-xs ${
+                className={`${idx < arr.length - 1 ? 'hidden md:flex' : 'flex'} rounded bg-[#171512]/96 border px-3 py-1.5 shadow-lg items-center justify-between gap-2 text-xs ${
                   n.kind === 'alert'
                     ? 'border-[#e06353]/70 text-[#fbd5cf]'
                     : n.kind === 'warning'
@@ -577,10 +1086,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         )}
       </div>
 
-      {/* BOTTOM UNIFIED RTS DOCK & CONTEXTUAL INSPECTOR */}
-      <div className="w-full flex flex-col items-center px-2 sm:px-4 pb-2 sm:pb-3 gap-2">
+      {/* BOTTOM UNIFIED RTS DOCK (md+) & LIGHTWEIGHT MOBILE CONTROLS (< md) */}
+      <div className="w-full flex flex-col items-center px-2.5 sm:px-4 pb-2.5 sm:pb-3 gap-2">
         {/* Contextual Entity / Multi-Villager / Military Selection Inspector */}
-        {!activeTab && (
+        {!activeTab && !mobileHubOpen && (
           <SelectionInspector
             playerKingdomId={gameData.kingdomId}
             selectedEntities={selectedEntities}
@@ -600,11 +1109,116 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           />
         )}
 
-        {/* Active Navigation Drawer */}
+        {/* MOBILE (< md) FLOATING CONTROLS: Bottom-Left Quick Toggle + Bottom-Right Command Hub */}
+        <div className="md:hidden w-full flex items-end justify-between gap-2 relative">
+          {/* Bottom-Left Quick Shortcuts Toggle */}
+          <div className="pointer-events-auto relative flex flex-col items-start">
+            {mobileQuickOpen && (
+              <div
+                role="region"
+                aria-label="Quick Camera and Unit Shortcuts"
+                className="mb-2 w-52 rounded-md bg-[#171512]/96 border border-[#A77A32]/65 p-1.5 shadow-2xl space-y-1"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileQuickOpen(false);
+                    onFocusSettlement();
+                  }}
+                  className="w-full min-h-[44px] px-3 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A]/55 flex items-center justify-between text-xs font-semibold text-[#F2E8D5] cursor-pointer"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Home className="w-4 h-4 text-[#D4A64A]" aria-hidden="true" />
+                    <span>Center Settlement</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileQuickOpen(false);
+                    handlePresetClick(activeCamPreset === 'overview' ? 'settlement' : 'overview');
+                  }}
+                  className="w-full min-h-[44px] px-3 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A]/55 flex items-center justify-between text-xs font-semibold text-[#F2E8D5] cursor-pointer"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Eye className="w-4 h-4 text-[#D4A64A]" aria-hidden="true" />
+                    <span>
+                      {activeCamPreset === 'overview' ? 'Settlement View' : 'Overview Camera'}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCycleVillager}
+                  className="w-full min-h-[44px] px-3 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A]/55 flex items-center justify-between text-xs font-semibold text-[#F2E8D5] cursor-pointer"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Users className="w-4 h-4 text-[#D4A64A]" aria-hidden="true" />
+                    <span>Next Villager</span>
+                  </span>
+                </button>
+                <div className="grid grid-cols-2 gap-1 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileQuickOpen(false);
+                      onSelectVillagersByRole('all');
+                    }}
+                    className="min-h-[44px] px-2 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A]/55 text-xs font-semibold font-mono-num text-[#F2E8D5] cursor-pointer whitespace-nowrap"
+                  >
+                    All ({villagers.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileQuickOpen(false);
+                      onSelectMilitaryUnits?.('all');
+                    }}
+                    className="min-h-[44px] px-2 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/65 text-xs font-semibold font-mono-num text-[#D4A64A] cursor-pointer whitespace-nowrap"
+                  >
+                    Army ({playerArmyCount})
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setMobileQuickOpen((o) => !o)}
+              aria-expanded={mobileQuickOpen}
+              aria-label="Toggle Quick Camera and Selection Controls"
+              className={`min-h-[44px] px-3.5 rounded-md border shadow-xl inline-flex items-center gap-2 text-xs font-semibold transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                mobileQuickOpen
+                  ? 'bg-[#292017] border-[#D4A64A] text-[#D4A64A]'
+                  : 'bg-[#171512]/96 border-[#A77A32]/65 text-[#F2E8D5]'
+              }`}
+            >
+              <SlidersHorizontal className="w-4 h-4 text-[#D4A64A]" aria-hidden="true" />
+              <span>Quick</span>
+            </button>
+          </div>
+
+          {/* Bottom-Right Primary Floating Kingdom Menu Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setMobileQuickOpen(false);
+              setMobileStatsExpanded(false);
+              setMobileHubOpen(true);
+            }}
+            aria-label="Open Kingdom Command Hub"
+            className="pointer-events-auto min-h-[46px] px-4 rounded-md bg-[#D4A64A] hover:bg-[#e2b65a] text-[#171512] shadow-xl inline-flex items-center gap-2 text-xs font-bold transition-colors duration-150 cursor-pointer whitespace-nowrap"
+          >
+            <LayoutGrid className="w-4 h-4" aria-hidden="true" />
+            <span>Menu</span>
+          </button>
+        </div>
+
+        {/* DESKTOP & TABLET (md+) INLINE NAVIGATION DRAWER */}
         {!dockCollapsed && activeTab && (
           <section
             aria-label={`${activeTab} management panel`}
-            className="pointer-events-auto w-full max-w-4xl max-h-[48vh] sm:max-h-none overflow-y-auto sm:overflow-visible akanu-scroll rounded-md bg-[#171512]/96 border border-[#A77A32]/65 p-3.5 sm:p-4 shadow-2xl space-y-3"
+            className="pointer-events-auto hidden md:block w-full max-w-4xl rounded-md bg-[#171512]/96 border border-[#A77A32]/65 p-4 shadow-2xl space-y-3"
           >
             <div className="flex items-center justify-between gap-3 border-b border-[#76513A]/50 pb-2">
               <div className="min-w-0">
@@ -641,391 +1255,12 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               </button>
             </div>
 
-            {activeTab === 'kingdom' && (
-              <EconomyPanel
-                gameData={gameData}
-                allEntities={allEntities}
-                onAdjustWorkforce={onAdjustWorkforce}
-                onSelectVillagersByRole={(role) => {
-                  setActiveTab(null);
-                  onSelectVillagersByRole(role);
-                }}
-                onSelectAndFocusEntity={(id) => {
-                  setActiveTab(null);
-                  onSelectEntityById(id, false);
-                  onFocusEntity(id);
-                }}
-                onChangeRegionLive={onChangeRegionLive}
-              />
-            )}
-
-            {activeTab === 'construction' && (
-              <ConstructionPanel
-                kingdomId={gameData.kingdomId}
-                resources={gameData.resources}
-                activePlacementArchetype={placementPreview.archetype}
-                onStartPlacement={handleBeginPlacement}
-              />
-            )}
-
-            {activeTab === 'military' && (
-              <div className="space-y-3 text-xs">
-                {/* Kingdom Doctrine Trait Banner */}
-                {KINGDOM_MILITARY_BONUSES[gameData.kingdomId] && (
-                  <div className="rounded bg-[#292017] border border-[#A77A32]/60 p-2.5 flex items-start gap-3">
-                    <Shield className="w-5 h-5 text-[#D4A64A] shrink-0 mt-0.5" aria-hidden="true" />
-                    <div>
-                      <div className="font-semibold text-[#F2E8D5]">
-                        {kingdom.name} Doctrine: {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].name}
-                      </div>
-                      <div className="text-[#B8AA96] text-[11px] leading-relaxed mt-0.5">
-                        {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].summary}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Military Roster & Quick Selection */}
-                {(() => {
-                  const militaryUnits = allEntities.filter(
-                    (e): e is CharacterEntity =>
-                      e.category === 'character' &&
-                      e.kingdomId === gameData.kingdomId &&
-                      Boolean(e.militaryClass),
-                  );
-                  const militaryBuildings = allEntities.filter(
-                    (e): e is BuildingEntity =>
-                      e.category === 'building' &&
-                      e.kingdomId === gameData.kingdomId &&
-                      [
-                        'barracks_compound',
-                        'archery_grounds',
-                        'cavalry_stables',
-                        'weapon_workshop',
-                        'royal_palace',
-                      ].includes(e.archetype),
-                  );
-                  const totalQueued = militaryBuildings.reduce(
-                    (acc, b) => acc + (b.recruitmentQueue?.length || 0),
-                    0,
-                  );
-
-                  const hourlyFoodUpkeep = militaryUnits.reduce((acc, u) => {
-                    const bp = u.militaryClass ? MILITARY_UNIT_CATALOG[u.militaryClass] : null;
-                    return acc + (bp?.upkeepPerMinute?.food ?? 0) * 60;
-                  }, 0);
-                  const hourlyGoldUpkeep = militaryUnits.reduce((acc, u) => {
-                    const bp = u.militaryClass ? MILITARY_UNIT_CATALOG[u.militaryClass] : null;
-                    return acc + (bp?.upkeepPerMinute?.gold ?? 0) * 60;
-                  }, 0);
-
-                  return (
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2 bg-[#292017]/80 border border-[#76513A]/60 rounded p-2.5">
-                        <div className="flex flex-wrap items-center gap-4">
-                          <div>
-                            <span className="text-[#B8AA96] uppercase text-[10px] tracking-wider block">
-                              Standing Soldiers
-                            </span>
-                            <span className="font-mono-num font-bold text-base text-[#F2E8D5]">
-                              {militaryUnits.length}
-                            </span>
-                          </div>
-                          <div className="border-l border-[#76513A]/60 pl-3">
-                            <span className="text-[#B8AA96] uppercase text-[10px] tracking-wider block">
-                              Queued Recruits
-                            </span>
-                            <span className="font-mono-num font-bold text-sm text-[#D4A64A]">
-                              {totalQueued}
-                            </span>
-                          </div>
-                          <div className="border-l border-[#76513A]/60 pl-3">
-                            <span className="text-[#B8AA96] uppercase text-[10px] tracking-wider block">
-                              Hourly Upkeep
-                            </span>
-                            <span className="font-mono-num font-bold text-sm text-[#fca5a5]">
-                              -{Math.round(hourlyFoodUpkeep)} Food / -{Math.round(hourlyGoldUpkeep)} Gold
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveTab(null);
-                              onSelectMilitaryUnits?.('all');
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#D4A64A] hover:bg-[#e2b65a] text-[#171512] font-semibold text-xs cursor-pointer shadow-sm transition-colors duration-150 whitespace-nowrap"
-                          >
-                            <Swords className="w-3.5 h-3.5" aria-hidden="true" />
-                            <span>Select Entire Army</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Unit Roster by Class */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                        {(
-                          [
-                            'infantry',
-                            'spearman',
-                            'archer',
-                            'cavalry',
-                            'royal_guard',
-                            'scout',
-                            'siege_engineer',
-                            'commander',
-                          ] as MilitaryUnitClass[]
-                        ).map((uClass) => {
-                          const count = militaryUnits.filter(
-                            (u) => u.militaryClass === uClass,
-                          ).length;
-                          const bp = MILITARY_UNIT_CATALOG[uClass];
-                          return (
-                            <button
-                              key={uClass}
-                              type="button"
-                              onClick={() => {
-                                setActiveTab(null);
-                                onSelectMilitaryUnits?.(uClass);
-                              }}
-                              className={`p-2 rounded text-left border transition-colors duration-150 cursor-pointer ${
-                                count > 0
-                                  ? 'bg-[#292017] border-[#A77A32] hover:border-[#D4A64A]'
-                                  : 'bg-[#171512] border-[#76513A]/40 opacity-75'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="font-semibold text-[#F2E8D5] truncate">
-                                  {bp.name}
-                                </span>
-                                <span
-                                  className={`px-1.5 py-0.5 rounded font-mono-num text-[11px] font-bold shrink-0 ${
-                                    count > 0
-                                      ? 'bg-[#D4A64A] text-[#171512]'
-                                      : 'bg-[#292017] text-[#B8AA96]'
-                                  }`}
-                                >
-                                  {count}
-                                </span>
-                              </div>
-                              <div className="text-[10px] text-[#B8AA96] mt-0.5 line-clamp-1 font-mono-num">
-                                {bp.tacticalRole} · Atk {bp.attackDamage} · HP {bp.health}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {/* Military Facilities List */}
-                      <div className="pt-2">
-                        <div className="text-[11px] font-semibold text-[#D4A64A] uppercase tracking-wider mb-1.5">
-                          Military Facilities & Production Lines
-                        </div>
-                        {militaryBuildings.length === 0 ? (
-                          <div className="p-3 rounded bg-[#292017]/55 border border-[#76513A]/50 text-[#B8AA96] text-center">
-                            No dedicated military buildings constructed yet. Open{' '}
-                            <button
-                              type="button"
-                              onClick={() => setActiveTab('construction')}
-                              className="text-[#D4A64A] underline font-medium cursor-pointer"
-                            >
-                              Construction
-                            </button>{' '}
-                            to place Barracks, Archery Grounds, or Cavalry Stables.
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {militaryBuildings.map((b) => (
-                              <div
-                                key={b.id}
-                                className="p-2.5 rounded bg-[#292017]/80 border border-[#76513A]/60 flex items-center justify-between gap-2"
-                              >
-                                <div className="min-w-0">
-                                  <div className="font-semibold text-[#F2E8D5] text-xs truncate">
-                                    {b.name}
-                                  </div>
-                                  <div className="text-[10px] text-[#B8AA96] font-mono-num">
-                                    Status: {b.constructionState === 'completed' ? 'Active' : 'Under Construction'} · Queued: {b.recruitmentQueue?.length || 0}/5
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setActiveTab(null);
-                                    onSelectEntityById(b.id, false);
-                                    onFocusEntity(b.id);
-                                  }}
-                                  className="px-2.5 py-1 rounded bg-[#171512] hover:bg-[#362a1e] border border-[#76513A] text-[11px] text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
-                                >
-                                  Manage
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
-            {activeTab === 'research' && (
-              <div className="space-y-3 text-xs">
-                {/* 1. Sovereign Economic & Martial Doctrines */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div className="rounded bg-[#292017]/80 border border-[#76513A]/60 p-3 space-y-1">
-                    <div className="inline-flex items-center gap-1.5 font-semibold text-[#D4A64A]">
-                      <Crown className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span>{kingdom.name} Economic Doctrine</span>
-                    </div>
-                    <p className="text-[#F2E8D5] leading-relaxed">
-                      {KINGDOM_ECONOMIC_BONUSES[gameData.kingdomId].summary}
-                    </p>
-                  </div>
-
-                  <div className="rounded bg-[#292017]/80 border border-[#76513A]/60 p-3 space-y-1">
-                    <div className="inline-flex items-center gap-1.5 font-semibold text-[#D4A64A]">
-                      <Shield className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span>
-                        Martial Tradition: {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].name}
-                      </span>
-                    </div>
-                    <p className="text-[#F2E8D5] leading-relaxed">
-                      {KINGDOM_MILITARY_BONUSES[gameData.kingdomId].summary}
-                    </p>
-                  </div>
-                </div>
-
-                {/* 2. Biome Adaptation & Terrain Traits */}
-                <div className="rounded bg-[#292017]/65 border border-[#76513A]/55 p-3 space-y-1.5">
-                  <div className="inline-flex items-center gap-1.5 font-semibold text-[#D4A64A]">
-                    <Compass className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>{region.name} Environmental Adaptation</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-[#B8AA96]">
-                    {region.strategicTraits.map((trait) => (
-                      <div
-                        key={trait}
-                        className="rounded bg-[#171512] border border-[#76513A]/45 px-2.5 py-1.5 text-[#F2E8D5]"
-                      >
-                        {trait}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 3. Live Realm Progression Track */}
-                <div className="rounded bg-[#292017]/65 border border-[#76513A]/55 p-3 space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-semibold text-[#D4A64A]">
-                      Realm Ascension Track (Current: {gameData.progressionStage})
-                    </span>
-                    <span className="font-mono-num text-[11px] text-[#B8AA96]">
-                      {gameData.population.current} Citizens · {completedBuildings.length} Completed Buildings ·{' '}
-                      {hasCompletedPalace ? 'Royal Palace Built' : 'Royal Palace Pending'}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5">
-                    {REALM_STAGES.map((item, idx) => {
-                      const reached = idx <= currentStageIndex;
-                      const current = idx === currentStageIndex;
-                      return (
-                        <div
-                          key={item.stage}
-                          className={`rounded border p-2 space-y-0.5 ${
-                            current
-                              ? 'bg-[#292017] border-[#D4A64A] text-[#F2E8D5]'
-                              : reached
-                                ? 'bg-[#171512] border-[#4ca86b]/55 text-[#d7f7e1]'
-                                : 'bg-[#110f0d] border-[#76513A]/40 text-[#B8AA96]'
-                          }`}
-                        >
-                          <div className="flex items-center gap-1 font-semibold text-[11px]">
-                            {reached ? (
-                              <CheckCircle2
-                                className={`w-3.5 h-3.5 shrink-0 ${
-                                  current ? 'text-[#D4A64A]' : 'text-[#86efac]'
-                                }`}
-                                aria-hidden="true"
-                              />
-                            ) : (
-                              <Circle className="w-3.5 h-3.5 shrink-0 text-[#76513A]" aria-hidden="true" />
-                            )}
-                            <span className="truncate">{item.stage}</span>
-                          </div>
-                          <div className="text-[10px] leading-snug opacity-85">
-                            {item.requirement}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'diplomacy' && (
-              <DiplomacyPanel
-                playerKingdomId={gameData.kingdomId}
-                relations={diplomacyRelations || ({} as Record<KingdomId, DiplomaticRelation>)}
-                events={worldEventsData || []}
-                onProposeTreaty={onProposeTreaty || (() => ({ accepted: false, reason: 'Diplomacy unavailable.' }))}
-                onSendEnvoy={onSendEnvoy}
-                onProposePeace={onProposePeace}
-                onDeclareWar={onDeclareWar || (() => {})}
-                onClose={() => setActiveTab(null)}
-              />
-            )}
-
-            {activeTab === 'trade' && (() => {
-              const activeTradePacts = Object.values(diplomacyRelations || {}).filter((rel) =>
-                rel.activeTreaties.some((t) => t.kind === 'trade_pact' && t.durationRemainingSec > 0),
-              ).length;
-              return (
-                <div className="space-y-2.5 text-xs text-[#F2E8D5] leading-relaxed">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
-                      <div className="text-[10px] text-[#B8AA96]">Active Marketplaces</div>
-                      <div className="font-mono-num text-base font-bold text-[#F2E8D5]">
-                        {completedMarkets}
-                      </div>
-                    </div>
-                    <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
-                      <div className="text-[10px] text-[#B8AA96]">Assigned Traders</div>
-                      <div className="font-mono-num text-base font-bold text-[#F2E8D5]">
-                        {activeTraders}
-                      </div>
-                    </div>
-                    <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
-                      <div className="text-[10px] text-[#B8AA96]">Trade Pacts</div>
-                      <div className="font-mono-num text-base font-bold text-[#D4A64A]">
-                        {activeTradePacts} (+{activeTradePacts * 15}%)
-                      </div>
-                    </div>
-                    <div className="rounded bg-[#292017]/80 border border-[#76513A]/55 p-2.5">
-                      <div className="text-[10px] text-[#B8AA96]">Gold Rate</div>
-                      <div className="font-mono-num text-base font-bold text-[#86efac]">
-                        +{Math.round(gameData.rates.productionPerMinute.gold)}/min
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-[#B8AA96]">
-                    Assign villagers as <strong className="text-[#D4A64A]">Traders</strong>, construct{' '}
-                    <strong className="text-[#D4A64A]">Marketplaces</strong>, and negotiate{' '}
-                    <strong className="text-[#D4A64A]">Trade Pacts</strong> in Diplomacy to amplify
-                    kingdom tariff revenues.
-                  </p>
-                </div>
-              );
-            })()}
+            {renderDepartmentContent(activeTab, false)}
           </section>
         )}
 
-        {/* Unified Bottom Dock with Collapse/Expand Toggle */}
-        <div className="pointer-events-auto flex flex-col items-center w-full max-w-6xl">
+        {/* DESKTOP & TABLET (md+) UNIFIED BOTTOM DOCK */}
+        <div className="pointer-events-auto hidden md:flex flex-col items-center w-full max-w-6xl">
           <button
             type="button"
             onClick={() => setDockCollapsed((c) => !c)}
@@ -1040,7 +1275,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           </button>
 
           {!dockCollapsed && (
-            <div className="w-full rounded-md bg-[#171512]/96 border border-[#A77A32]/65 px-2 sm:px-3 py-2 shadow-xl flex flex-col xl:flex-row xl:items-center justify-between gap-2">
+            <div className="w-full rounded-md bg-[#171512]/96 border border-[#A77A32]/65 px-3 py-2 shadow-xl flex flex-col xl:flex-row xl:items-center justify-between gap-2">
               <nav
                 aria-label="Kingdom Departments"
                 className="grid grid-cols-6 xl:flex items-center gap-1 w-full xl:w-auto"
@@ -1054,29 +1289,28 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                       aria-label={t.label}
                       aria-pressed={isActive}
                       onClick={() => toggleTab(t.id)}
-                      className={`inline-flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 px-1 sm:px-2.5 py-1.5 rounded text-[10px] sm:text-xs font-semibold text-center transition-colors duration-150 cursor-pointer whitespace-nowrap min-h-[44px] sm:min-h-0 ${
+                      className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold text-center transition-colors duration-150 cursor-pointer whitespace-nowrap ${
                         isActive
                           ? 'bg-[#D4A64A] text-[#171512]'
                           : 'bg-[#292017] hover:bg-[#362a1e] border border-[#76513A]/50 text-[#F2E8D5]'
                       }`}
                     >
                       {t.renderIcon()}
-                      <span className="sm:hidden">{t.shortLabel}</span>
-                      <span className="hidden sm:inline">{t.label}</span>
+                      <span>{t.label}</span>
                     </button>
                   );
                 })}
               </nav>
 
-              <div className="flex flex-wrap sm:flex-nowrap items-center justify-between xl:justify-end gap-1.5 w-full xl:w-auto">
+              <div className="flex flex-nowrap items-center justify-between xl:justify-end gap-1.5 w-full xl:w-auto">
                 <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={handleCycleVillager}
                     title="Select & Focus Next Villager"
-                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap min-h-[44px] sm:min-h-0"
+                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
                   >
-                    <Users className="w-3.5 h-3.5 text-[#D4A64A] hidden sm:inline" aria-hidden="true" />
+                    <Users className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
                     <span>Next</span>
                     <span className="hidden 2xl:inline">Villager</span>
                   </button>
@@ -1087,7 +1321,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                       onSelectVillagersByRole('all');
                     }}
                     title="Select All Villagers"
-                    className="px-2 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] font-mono-num transition-colors duration-150 cursor-pointer whitespace-nowrap min-h-[44px] sm:min-h-0"
+                    className="px-2 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] font-mono-num transition-colors duration-150 cursor-pointer whitespace-nowrap"
                   >
                     All ({villagers.length})
                   </button>
@@ -1098,7 +1332,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                       onSelectMilitaryUnits?.('all');
                     }}
                     title="Select All Military Units"
-                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/70 text-xs font-semibold text-[#D4A64A] font-mono-num transition-colors duration-150 cursor-pointer whitespace-nowrap min-h-[44px] sm:min-h-0"
+                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/70 text-xs font-semibold text-[#D4A64A] font-mono-num transition-colors duration-150 cursor-pointer whitespace-nowrap"
                   >
                     <Swords className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>Army ({playerArmyCount})</span>
@@ -1110,7 +1344,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   <div
                     role="group"
                     aria-label="Camera Presets"
-                    className="hidden sm:flex items-center rounded bg-[#110f0d] border border-[#76513A]/60 p-0.5 mr-1"
+                    className="flex items-center rounded bg-[#110f0d] border border-[#76513A]/60 p-0.5 mr-1"
                   >
                     {(
                       [
@@ -1143,7 +1377,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                     onClick={() => onCameraRotate(-0.38)}
                     aria-label="Rotate Camera Left"
                     title="Rotate Camera Left (Q)"
-                    className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
+                    className="w-8 h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
@@ -1152,7 +1386,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                     onClick={() => onCameraRotate(0.38)}
                     aria-label="Rotate Camera Right"
                     title="Rotate Camera Right (E)"
-                    className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
+                    className="w-8 h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
                   >
                     <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
@@ -1161,7 +1395,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                     onClick={() => onCameraZoom(-7)}
                     aria-label="Zoom In"
                     title="Zoom In (+)"
-                    className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
+                    className="w-8 h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
                   >
                     <ZoomIn className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
@@ -1170,7 +1404,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                     onClick={() => onCameraZoom(7)}
                     aria-label="Zoom Out"
                     title="Zoom Out (-)"
-                    className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
+                    className="w-8 h-8 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-[#F2E8D5] transition-colors duration-150 cursor-pointer"
                   >
                     <ZoomOut className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
@@ -1179,19 +1413,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                     onClick={onFocusSettlement}
                     aria-label="Focus Settlement Center"
                     title="Focus Settlement Center (Home)"
-                    className="px-2.5 h-11 sm:h-8 inline-flex items-center gap-1 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
+                    className="px-2.5 h-8 inline-flex items-center gap-1 rounded bg-[#292017] hover:bg-[#362a1e] border border-[#76513A] text-xs font-medium text-[#F2E8D5] transition-colors duration-150 cursor-pointer whitespace-nowrap"
                   >
                     <Home className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
-                    <span className="hidden sm:inline">Center</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handlePresetClick(activeCamPreset === 'overview' ? 'settlement' : 'overview')}
-                    aria-label="Toggle Overview Camera"
-                    title="Toggle Strategic Overview Camera"
-                    className="sm:hidden w-11 h-11 inline-flex items-center justify-center rounded bg-[#292017] hover:bg-[#362a1e] border border-[#A77A32]/65 text-[#D4A64A] transition-colors duration-150 cursor-pointer"
-                  >
-                    <Eye className="w-4 h-4" aria-hidden="true" />
+                    <span>Center</span>
                   </button>
                 </div>
               </div>
@@ -1199,6 +1424,116 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           )}
         </div>
       </div>
+
+      {/* MOBILE FULL-SCREEN COMMAND HUB OVERLAY (< md) */}
+      {mobileHubOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Kingdom Command Hub"
+          className="pointer-events-auto md:hidden fixed inset-0 z-30 bg-[#171512] flex flex-col"
+        >
+          {/* Hub Header */}
+          <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-[#292017] border-b border-[#76513A]/60 shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <KingdomEmblem kingdomId={kingdom.id} size={28} className="shrink-0" />
+              <div className="min-w-0">
+                <h2 className="font-display text-sm font-bold text-[#F2E8D5] truncate">
+                  {gameData.playerKingdomName}
+                </h2>
+                <p className="text-[11px] text-[#B8AA96] truncate">
+                  {region.name} · {gameData.progressionStage}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMobileHubOpen(false)}
+              aria-label="Close Kingdom Command Hub"
+              className="w-11 h-11 inline-flex items-center justify-center rounded-md bg-[#171512] border border-[#76513A] text-[#F2E8D5] shrink-0 cursor-pointer"
+            >
+              <X className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
+
+          {/* Hub Utility Row (World Overview, Save, Audio, Settings) */}
+          <div className="grid grid-cols-4 gap-1.5 px-3.5 py-2 bg-[#110f0d] border-b border-[#76513A]/45 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileHubOpen(false);
+                setShowOverview(true);
+              }}
+              className="min-h-[44px] px-2 rounded bg-[#292017] border border-[#A77A32]/65 flex items-center justify-center gap-1.5 text-[11px] font-semibold text-[#F2E8D5] cursor-pointer whitespace-nowrap"
+            >
+              <ScrollText className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
+              <span>World</span>
+            </button>
+            <button
+              type="button"
+              onClick={onSaveGame}
+              className="min-h-[44px] px-2 rounded bg-[#292017] border border-[#76513A] flex items-center justify-center gap-1.5 text-[11px] font-semibold text-[#F2E8D5] cursor-pointer whitespace-nowrap"
+            >
+              <Save className="w-3.5 h-3.5 text-[#A77A32]" aria-hidden="true" />
+              <span>{saveToast ? 'Saved' : 'Save'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={onToggleMute}
+              className="min-h-[44px] px-2 rounded bg-[#292017] border border-[#76513A] flex items-center justify-center gap-1.5 text-[11px] font-semibold text-[#F2E8D5] cursor-pointer whitespace-nowrap"
+            >
+              {audioMuted ? (
+                <VolumeX className="w-3.5 h-3.5 text-[#fca5a5]" aria-hidden="true" />
+              ) : (
+                <Volume2 className="w-3.5 h-3.5 text-[#D4A64A]" aria-hidden="true" />
+              )}
+              <span>{audioMuted ? 'Muted' : 'Audio'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileHubOpen(false);
+                onOpenSettings();
+              }}
+              className="min-h-[44px] px-2 rounded bg-[#292017] border border-[#76513A] flex items-center justify-center gap-1.5 text-[11px] font-semibold text-[#F2E8D5] cursor-pointer whitespace-nowrap"
+            >
+              <Settings className="w-3.5 h-3.5 text-[#B8AA96]" aria-hidden="true" />
+              <span>Settings</span>
+            </button>
+          </div>
+
+          {/* Hub Scrollable Department Tabs */}
+          <nav
+            aria-label="Mobile Kingdom Departments"
+            className="flex items-center gap-1.5 px-3.5 py-2 overflow-x-auto akanu-scroll border-b border-[#76513A]/45 shrink-0"
+          >
+            {NAV_TABS.map((t) => {
+              const isActive = mobileHubTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => setMobileHubTab(t.id)}
+                  className={`min-h-[44px] px-3.5 rounded inline-flex items-center gap-1.5 text-xs font-semibold shrink-0 transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                    isActive
+                      ? 'bg-[#D4A64A] text-[#171512]'
+                      : 'bg-[#292017] border border-[#76513A]/60 text-[#F2E8D5]'
+                  }`}
+                >
+                  {t.renderIcon()}
+                  <span>{t.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Hub Department Content */}
+          <div className="flex-1 overflow-y-auto akanu-scroll p-3.5">
+            {renderDepartmentContent(mobileHubTab, true)}
+          </div>
+        </div>
+      )}
 
       {showOverview && (
         <KingdomOverviewPanel

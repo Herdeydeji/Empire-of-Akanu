@@ -27,7 +27,12 @@ import {
   ResourceRates,
   SelectableEntity,
 } from '../../types/game';
-import { sampleTerrainHeight, sampleTerrainSlope, WATER_LEVEL } from '../math/noise';
+import {
+  findNearestRiverShorePoint,
+  sampleTerrainHeight,
+  sampleTerrainSlope,
+  WATER_LEVEL,
+} from '../math/noise';
 
 const BASE_WALK_SPEED = 2.65;
 const BASE_RUN_SPEED = 4.25;
@@ -612,6 +617,14 @@ export function placeNewBuilding(
     assignedWorkerIds: [],
     maxWorkers: bp.maxWorkers,
     linkedNodeId: null,
+    ...(archetype === 'cultivated_farm'
+      ? {
+          soilMoisture: 0.22,
+          cropGrowthProgress: 0.08,
+          cropGrowthStage: 0 as const,
+          lastWateredSec: runtime.elapsedSeconds,
+        }
+      : {}),
   };
 
   runtime.buildings.push(newBuilding);
@@ -705,6 +718,9 @@ function detachVillagerReservations(v: CharacterEntity, runtime: EconomyWorldRun
   v.deliveryBuildingId = null;
   v.moveTarget = null;
   v.workProgress = 0;
+  v.hydroPhase = 'idle';
+  v.waterTarget = null;
+  v.carriedWater = 0;
 }
 
 export function assignVillagerOccupation(
@@ -1441,7 +1457,7 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
     return;
   }
 
-  // 5. Farmer logic: cultivate completed Farm buildings -> haul food to Granary/Compound
+  // 5. Farmer logic: real hydro-farming cycle (fetch river water -> pour on soil -> grow & harvest -> deliver to granary)
   if (v.role === 'Farmer') {
     if (ledger.resources.food >= ledger.capacities.food - 0.01) {
       v.animationState = 'idle';
@@ -1487,30 +1503,154 @@ function stepSingleVillager(v: CharacterEntity, dt: number, runtime: EconomyWorl
       return;
     }
 
+    if (typeof farm.soilMoisture !== 'number') farm.soilMoisture = 0.42;
+    if (typeof farm.cropGrowthProgress !== 'number') farm.cropGrowthProgress = 0.25;
+    if (typeof farm.cropGrowthStage !== 'number') farm.cropGrowthStage = 1;
+
     v.taskType = 'work_farm';
     // Offset farmer position inside the farm plot based on worker slot so multiple farmers spread across furrows
     const slotIdx = Math.max(0, farm.assignedWorkerIds.indexOf(v.id));
     const offsetAngle = slotIdx * 2.1 + 0.5;
-    const workX = farm.position.x + Math.cos(offsetAngle) * 1.8;
-    const workZ = farm.position.z + Math.sin(offsetAngle) * 1.5;
+    const workX = farm.position.x + Math.cos(offsetAngle) * 1.85;
+    const workZ = farm.position.z + Math.sin(offsetAngle) * 1.55;
 
+    // Step 5a: Trigger river water fetch whenever farm soil dries below 0.36 and farmer isn't carrying water
+    if (
+      (!v.hydroPhase || v.hydroPhase === 'idle' || v.hydroPhase === 'tending_harvest') &&
+      farm.soilMoisture < 0.36 &&
+      (v.carriedWater ?? 0) <= 0.05 &&
+      v.carriedAmount < v.carryCapacity * 0.65
+    ) {
+      v.hydroPhase = 'heading_to_water';
+      v.workProgress = 0;
+    }
+
+    if (v.hydroPhase === 'heading_to_water') {
+      const shore = findNearestRiverShorePoint(
+        farm.position.x,
+        farm.position.z,
+        runtime.region,
+        runtime.seed,
+      );
+      v.waterTarget = { x: shore.waterX, z: shore.waterZ };
+      const arrivedAtBank = moveVillagerToward(
+        v,
+        shore.bankX,
+        shore.bankZ,
+        0.65,
+        dt,
+        runtime,
+        farm.id,
+        false,
+      );
+      v.activityLabel = 'Walking to river for irrigation water';
+      if (arrivedAtBank) {
+        v.hydroPhase = 'drawing_water';
+        v.workProgress = 0;
+        v.speed = 0;
+        v.rotationY = Math.atan2(shore.waterX - v.position.x, shore.waterZ - v.position.z);
+      }
+      return;
+    }
+
+    if (v.hydroPhase === 'drawing_water') {
+      const shore = findNearestRiverShorePoint(
+        farm.position.x,
+        farm.position.z,
+        runtime.region,
+        runtime.seed,
+      );
+      v.waterTarget = { x: shore.waterX, z: shore.waterZ };
+      v.rotationY = Math.atan2(shore.waterX - v.position.x, shore.waterZ - v.position.z);
+      v.animationState = 'drawing_water';
+      v.speed = 0;
+      v.gaitPhase += dt * 4.2;
+      v.workProgress += dt;
+      v.activityLabel = 'Drawing water from river into clay jar';
+      if (v.workProgress >= 1.35) {
+        v.carriedWater = 1.0;
+        v.workProgress = 0;
+        v.hydroPhase = 'carrying_water';
+      }
+      return;
+    }
+
+    if (v.hydroPhase === 'carrying_water') {
+      v.waterTarget = null;
+      const arrivedAtFurrow = moveVillagerToward(
+        v,
+        workX,
+        workZ,
+        0.65,
+        dt,
+        runtime,
+        farm.id,
+        false,
+      );
+      v.activityLabel = `Carrying river water to ${farm.name}`;
+      if (arrivedAtFurrow) {
+        v.hydroPhase = 'watering_crops';
+        v.workProgress = 0;
+        v.speed = 0;
+      }
+      return;
+    }
+
+    if (v.hydroPhase === 'watering_crops') {
+      v.waterTarget = { x: farm.position.x, z: farm.position.z };
+      v.animationState = 'watering_crops';
+      v.speed = 0;
+      v.gaitPhase += dt * 4.6;
+      v.workProgress += dt;
+      // Gently pan gaze over the planted rows while pouring
+      const baseYaw = Math.atan2(farm.position.x - v.position.x, farm.position.z - v.position.z);
+      v.rotationY = baseYaw + Math.sin(v.workProgress * 2.4) * 0.45;
+      farm.soilMoisture = Math.min(1.0, (farm.soilMoisture ?? 0.25) + dt * 0.38);
+      farm.lastWateredSec = runtime.elapsedSeconds;
+      v.activityLabel = `Pouring water onto ${farm.name} (${Math.round(farm.soilMoisture * 100)}% moisture)`;
+      if (v.workProgress >= 2.1) {
+        farm.soilMoisture = 1.0;
+        v.carriedWater = 0;
+        v.workProgress = 0;
+        v.waterTarget = null;
+        v.hydroPhase = 'tending_harvest';
+        runtime.dirtyBuildingIds.add(farm.id);
+      }
+      return;
+    }
+
+    // Step 5b: Walk to farm furrow to tend & harvest crops
     const arrived = moveVillagerToward(v, workX, workZ, 0.55, dt, runtime, farm.id, false);
     if (!arrived) {
       v.activityLabel = `Walking to ${farm.name}`;
       return;
     }
 
+    v.hydroPhase = 'tending_harvest';
     v.animationState = 'farming';
     v.speed = 0;
     v.gaitPhase += dt * 4.8;
-    const rate = OCCUPATION_CONFIGS.Farmer.baseGatherRatePerSec * v.productivity;
+    const moistureBoost = 0.72 + (farm.soilMoisture ?? 0.5) * 0.58;
+    const rate = OCCUPATION_CONFIGS.Farmer.baseGatherRatePerSec * v.productivity * moistureBoost;
     v.carriedResource = 'food';
     v.carriedAmount = Math.min(v.carryCapacity, v.carriedAmount + rate * dt);
-    v.activityLabel = `Tending crops at ${farm.name} (${Math.floor(v.carriedAmount)}/${v.carryCapacity} Food)`;
+    farm.cropGrowthProgress = Math.min(1.0, (farm.cropGrowthProgress ?? 0.2) + dt * 0.042 * moistureBoost);
+
+    const stageLabel =
+      (farm.cropGrowthStage ?? 1) >= 3
+        ? 'Harvesting ripe grain at'
+        : 'Tending irrigated crops at';
+    v.activityLabel = `${stageLabel} ${farm.name} (${Math.floor(v.carriedAmount)}/${v.carryCapacity} Food)`;
 
     if (v.carriedAmount >= v.carryCapacity) {
       v.taskType = 'deliver_resource';
       v.deliveryBuildingId = null;
+      v.hydroPhase = 'idle';
+      if (farm.cropGrowthProgress >= 0.85) {
+        farm.cropGrowthProgress = 0.14;
+        farm.cropGrowthStage = 1;
+        runtime.dirtyBuildingIds.add(farm.id);
+      }
     }
     return;
   }
@@ -2025,6 +2165,45 @@ function runPeriodicEconomyTick(tickDt: number, runtime: EconomyWorldRuntime): v
         node.richnessLabel = `${node.maxYield} ${node.resourceType} · Regrown`;
         runtime.dirtyNodeIds.add(node.id);
       }
+    }
+  }
+
+  // 1b. Update farm soil moisture evaporation & discrete crop growth stages (0..4)
+  const evapFactor = runtime.region.id === 'golden_savannah' ? 0.017 : 0.012;
+  for (let i = 0; i < runtime.buildings.length; i++) {
+    const b = runtime.buildings[i];
+    if (b.archetype !== 'cultivated_farm' || b.constructionState !== 'completed') continue;
+
+    const prevMoisture = b.soilMoisture ?? 0.45;
+    const prevStage = b.cropGrowthStage ?? 1;
+    const nextMoisture = Math.max(0.08, prevMoisture - tickDt * evapFactor);
+    b.soilMoisture = nextMoisture;
+
+    const prevProgress = b.cropGrowthProgress ?? 0.25;
+    const growthGain =
+      nextMoisture > 0.2
+        ? tickDt * (0.013 + nextMoisture * 0.026)
+        : tickDt * 0.004;
+    const nextProgress = Math.min(1.0, prevProgress + growthGain);
+    b.cropGrowthProgress = nextProgress;
+
+    const nextStage: 0 | 1 | 2 | 3 | 4 =
+      nextProgress < 0.14
+        ? 0
+        : nextProgress < 0.36
+          ? 1
+          : nextProgress < 0.62
+            ? 2
+            : nextProgress < 0.85
+              ? 3
+              : 4;
+    b.cropGrowthStage = nextStage;
+
+    if (
+      nextStage !== prevStage ||
+      Math.floor(prevMoisture * 10) !== Math.floor(nextMoisture * 10)
+    ) {
+      runtime.dirtyBuildingIds.add(b.id);
     }
   }
 

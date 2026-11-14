@@ -19,6 +19,8 @@ export interface CharacterVisualRig {
   tunicMaterial: THREE.MeshStandardMaterial;
   carriedBundleMesh: THREE.Mesh;
   carriedBundleMaterial: THREE.MeshStandardMaterial;
+  waterJarGroup: THREE.Group;
+  waterStreamMesh: THREE.Mesh;
   toolMeshes: Record<string, THREE.Object3D>;
   horseLegs: THREE.Group[];
   activePropType: string;
@@ -131,11 +133,12 @@ export function createProceduralCharacterRig(
   root.add(bodyPivot);
 
   const skirtProfile = [
-    new THREE.Vector2(0.24, 0.34),
-    new THREE.Vector2(0.22, 0.62),
-    new THREE.Vector2(0.17, 0.92),
+    new THREE.Vector2(0.23, 0.34),
+    new THREE.Vector2(0.21, 0.56),
+    new THREE.Vector2(0.18, 0.78),
+    new THREE.Vector2(0.155, 0.94),
   ];
-  const skirtMesh = new THREE.Mesh(trackGeo(new THREE.LatheGeometry(skirtProfile, 12)), tunicMat);
+  const skirtMesh = new THREE.Mesh(trackGeo(new THREE.LatheGeometry(skirtProfile, 16)), tunicMat);
   skirtMesh.castShadow = true;
   skirtMesh.receiveShadow = true;
   bodyPivot.add(skirtMesh);
@@ -145,28 +148,39 @@ export function createProceduralCharacterRig(
   spinePivot.position.set(0, 0.92, 0);
   bodyPivot.add(spinePivot);
 
+  // Sculpted organic human torso (tapered waist -> ribcage -> rounded shoulders)
+  const torsoProfile = [
+    new THREE.Vector2(0.148, 0.0),
+    new THREE.Vector2(0.158, 0.11),
+    new THREE.Vector2(0.195, 0.25),
+    new THREE.Vector2(0.212, 0.38),
+    new THREE.Vector2(0.165, 0.47),
+    new THREE.Vector2(0.085, 0.50),
+  ];
   const torsoMesh = new THREE.Mesh(
-    trackGeo(new THREE.CylinderGeometry(0.215, 0.175, 0.48, 12)),
+    trackGeo(new THREE.LatheGeometry(torsoProfile, 16)),
     tunicMat,
   );
-  torsoMesh.position.y = 0.22;
+  torsoMesh.scale.set(1.06, 1.0, 0.78);
   torsoMesh.castShadow = true;
+  torsoMesh.receiveShadow = true;
   spinePivot.add(torsoMesh);
 
   const beltMesh = new THREE.Mesh(
-    trackGeo(new THREE.CylinderGeometry(0.188, 0.195, 0.12, 12)),
+    trackGeo(new THREE.CylinderGeometry(0.168, 0.178, 0.10, 14)),
     sashMat,
   );
-  beltMesh.position.y = -0.01;
+  beltMesh.scale.set(1.05, 1.0, 0.82);
+  beltMesh.position.y = 0.02;
   beltMesh.castShadow = true;
   spinePivot.add(beltMesh);
 
   const shoulderDrape = new THREE.Mesh(
-    trackGeo(new THREE.TorusGeometry(0.185, 0.048, 6, 14)),
+    trackGeo(new THREE.TorusGeometry(0.172, 0.042, 8, 16)),
     sashMat,
   );
-  shoulderDrape.position.set(0, 0.33, 0);
-  shoulderDrape.rotation.set(Math.PI / 2.3, 0.32, 0);
+  shoulderDrape.position.set(0, 0.34, 0);
+  shoulderDrape.rotation.set(Math.PI / 2.35, 0.30, 0);
   spinePivot.add(shoulderDrape);
 
   // Flowing cloak / mantle for royal guards, commanders, and seasoned traders
@@ -176,7 +190,7 @@ export function createProceduralCharacterRig(
     entity.role === 'Trader'
   ) {
     const cloak = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.19, 0.32, 0.88, 10, 1, true, Math.PI * 0.65, Math.PI * 0.7)),
+      trackGeo(new THREE.CylinderGeometry(0.18, 0.31, 0.86, 12, 1, true, Math.PI * 0.65, Math.PI * 0.7)),
       sashMat,
     );
     cloak.position.set(0, 0.02, -0.04);
@@ -188,63 +202,64 @@ export function createProceduralCharacterRig(
   headPivot.position.set(0, 0.50, 0);
   spinePivot.add(headPivot);
 
-  // Muscular neck
+  // Sculpted tapered neck
   const neck = new THREE.Mesh(
-    trackGeo(new THREE.CylinderGeometry(0.068, 0.082, 0.14, 8)),
+    trackGeo(new THREE.CylinderGeometry(0.062, 0.076, 0.14, 10)),
     skinMat,
   );
   neck.position.y = 0.05;
   neck.castShadow = true;
   headPivot.add(neck);
 
-  // Anatomically shaped head (cranium, chin, jawline)
-  const head = new THREE.Mesh(trackGeo(new THREE.SphereGeometry(0.148, 14, 12)), skinMat);
-  head.scale.set(0.92, 1.12, 0.96);
-  head.position.y = 0.20;
+  // Anatomically contoured cranium + cheekbone fullness + chin/jaw
+  const head = new THREE.Mesh(trackGeo(new THREE.SphereGeometry(0.142, 16, 14)), skinMat);
+  head.scale.set(0.90, 1.08, 0.94);
+  head.position.y = 0.21;
   head.castShadow = true;
   headPivot.add(head);
 
-  // Sculpted nose bridge & nostrils
-  const nose = new THREE.Mesh(trackGeo(new THREE.ConeGeometry(0.024, 0.065, 4)), skinMat);
-  nose.position.set(0, 0.19, 0.155);
-  nose.rotation.x = 0.15;
-  headPivot.add(nose);
+  const chinJaw = new THREE.Mesh(trackGeo(new THREE.SphereGeometry(0.095, 12, 10)), skinMat);
+  chinJaw.scale.set(0.86, 0.92, 0.95);
+  chinJaw.position.set(0, 0.14, 0.048);
+  headPivot.add(chinJaw);
 
-  // Expressive eyes (white sclera + dark iris)
+  // Sculpted nose bridge & soft tip
+  const noseBridge = new THREE.Mesh(trackGeo(new THREE.CapsuleGeometry(0.016, 0.042, 4, 8)), skinMat);
+  noseBridge.position.set(0, 0.195, 0.132);
+  noseBridge.rotation.x = -0.22;
+  headPivot.add(noseBridge);
+
+  // Expressive eyes, eyelids/brows & curved ears
   const eyeWhiteMat = trackMat(new THREE.MeshBasicMaterial({ color: '#f3ede2' }));
   const eyePupilMat = trackMat(new THREE.MeshBasicMaterial({ color: '#160e0a' }));
   for (const side of [-1, 1]) {
-    const eyeWhite = new THREE.Mesh(trackGeo(new THREE.PlaneGeometry(0.038, 0.02)), eyeWhiteMat);
-    eyeWhite.position.set(side * 0.052, 0.22, 0.142);
-    eyeWhite.rotation.y = side * 0.18;
+    const eyeWhite = new THREE.Mesh(trackGeo(new THREE.SphereGeometry(0.022, 8, 8)), eyeWhiteMat);
+    eyeWhite.scale.set(1.1, 0.62, 0.45);
+    eyeWhite.position.set(side * 0.048, 0.22, 0.126);
     headPivot.add(eyeWhite);
 
-    const pupil = new THREE.Mesh(trackGeo(new THREE.PlaneGeometry(0.018, 0.018)), eyePupilMat);
-    pupil.position.set(side * 0.052, 0.22, 0.143);
+    const pupil = new THREE.Mesh(trackGeo(new THREE.SphereGeometry(0.012, 8, 8)), eyePupilMat);
+    pupil.scale.set(0.95, 0.95, 0.5);
+    pupil.position.set(side * 0.048, 0.22, 0.134);
     headPivot.add(pupil);
 
-    // Sculpted ears
-    const ear = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.018, 0.05, 0.035)), skinMat);
-    ear.position.set(side * 0.14, 0.20, -0.01);
+    const brow = new THREE.Mesh(trackGeo(new THREE.CapsuleGeometry(0.008, 0.032, 3, 6)), hairMat);
+    brow.rotation.z = Math.PI / 2 + side * -0.08;
+    brow.position.set(side * 0.048, 0.244, 0.132);
+    headPivot.add(brow);
+
+    const ear = new THREE.Mesh(trackGeo(new THREE.SphereGeometry(0.026, 8, 8)), skinMat);
+    ear.scale.set(0.48, 1.15, 0.72);
+    ear.position.set(side * 0.128, 0.20, -0.008);
     headPivot.add(ear);
   }
 
-  // Mouth & chin contour
-  const mouth = new THREE.Mesh(
-    trackGeo(new THREE.BoxGeometry(0.045, 0.012, 0.01)),
-    trackMat(new THREE.MeshBasicMaterial({ color: '#3d1f14' })),
-  );
-  mouth.position.set(0, 0.145, 0.142);
-  headPivot.add(mouth);
-
-  // Sculpted brow ridge & lower jaw definition
-  const browRidge = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.16, 0.025, 0.04)), skinMat);
-  browRidge.position.set(0, 0.245, 0.13);
-  headPivot.add(browRidge);
-
-  const jaw = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.125, 0.065, 0.1)), skinMat);
-  jaw.position.set(0, 0.125, 0.06);
-  headPivot.add(jaw);
+  // Softly contoured lips
+  const lipMat = trackMat(new THREE.MeshStandardMaterial({ color: '#4c261b', roughness: 0.55 }));
+  const lips = new THREE.Mesh(trackGeo(new THREE.CapsuleGeometry(0.010, 0.028, 4, 8)), lipMat);
+  lips.rotation.z = Math.PI / 2;
+  lips.position.set(0, 0.145, 0.134);
+  headPivot.add(lips);
 
   // Distinct hairstyle / headwear based on role & military status
   if (entity.isMilitary) {
@@ -344,9 +359,20 @@ export function createProceduralCharacterRig(
     spinePivot.add(medallion);
   }
 
-  const thighGeo = trackGeo(new THREE.CylinderGeometry(0.065, 0.052, 0.28, 8));
-  const calfGeo = trackGeo(new THREE.CylinderGeometry(0.052, 0.042, 0.28, 8));
-  const footGeo = trackGeo(new THREE.BoxGeometry(0.095, 0.055, 0.21));
+  // Anatomically tapered legs (muscular thigh, calf bulge, slim ankle, rounded foot)
+  const thighProfile = [
+    new THREE.Vector2(0.048, -0.28),
+    new THREE.Vector2(0.058, -0.14),
+    new THREE.Vector2(0.068, 0.0),
+  ];
+  const calfProfile = [
+    new THREE.Vector2(0.035, -0.28),
+    new THREE.Vector2(0.050, -0.11),
+    new THREE.Vector2(0.046, 0.0),
+  ];
+  const thighGeo = trackGeo(new THREE.LatheGeometry(thighProfile, 10));
+  const calfGeo = trackGeo(new THREE.LatheGeometry(calfProfile, 10));
+  const footGeo = trackGeo(new THREE.SphereGeometry(0.062, 10, 8));
 
   // Left Leg: Hip -> Thigh -> Knee -> Calf -> Foot
   const leftLegPivot = new THREE.Group();
@@ -354,7 +380,6 @@ export function createProceduralCharacterRig(
   bodyPivot.add(leftLegPivot);
 
   const leftThigh = new THREE.Mesh(thighGeo, skinMat);
-  leftThigh.position.y = -0.14;
   leftThigh.castShadow = true;
   leftLegPivot.add(leftThigh);
 
@@ -363,18 +388,18 @@ export function createProceduralCharacterRig(
   leftLegPivot.add(leftKneePivot);
 
   const leftCalf = new THREE.Mesh(calfGeo, skinMat);
-  leftCalf.position.y = -0.14;
   leftCalf.castShadow = true;
   leftKneePivot.add(leftCalf);
 
   if (entity.isMilitary) {
-    const greave = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.058, 0.048, 0.24, 8)), sashMat);
+    const greave = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.058, 0.048, 0.24, 10)), sashMat);
     greave.position.set(0, -0.12, 0.01);
     leftKneePivot.add(greave);
   }
 
   const leftSandals = new THREE.Mesh(footGeo, woodPropMat);
-  leftSandals.position.set(0, -0.28, 0.04);
+  leftSandals.scale.set(0.78, 0.45, 1.55);
+  leftSandals.position.set(0, -0.285, 0.045);
   leftSandals.castShadow = true;
   leftKneePivot.add(leftSandals);
 
@@ -384,7 +409,6 @@ export function createProceduralCharacterRig(
   bodyPivot.add(rightLegPivot);
 
   const rightThigh = new THREE.Mesh(thighGeo, skinMat);
-  rightThigh.position.y = -0.14;
   rightThigh.castShadow = true;
   rightLegPivot.add(rightThigh);
 
@@ -393,29 +417,39 @@ export function createProceduralCharacterRig(
   rightLegPivot.add(rightKneePivot);
 
   const rightCalf = new THREE.Mesh(calfGeo, skinMat);
-  rightCalf.position.y = -0.14;
   rightCalf.castShadow = true;
   rightKneePivot.add(rightCalf);
 
   if (entity.isMilitary) {
-    const greave = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.058, 0.048, 0.24, 8)), sashMat);
+    const greave = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.058, 0.048, 0.24, 10)), sashMat);
     greave.position.set(0, -0.12, 0.01);
     rightKneePivot.add(greave);
   }
 
   const rightSandals = new THREE.Mesh(footGeo, woodPropMat);
-  rightSandals.position.set(0, -0.28, 0.04);
+  rightSandals.scale.set(0.78, 0.45, 1.55);
+  rightSandals.position.set(0, -0.285, 0.045);
   rightSandals.castShadow = true;
   rightKneePivot.add(rightSandals);
 
-  const upperArmGeo = trackGeo(new THREE.CylinderGeometry(0.056, 0.046, 0.24, 8));
-  const forearmGeo = trackGeo(new THREE.CylinderGeometry(0.046, 0.038, 0.22, 8));
-  const sleeveGeo = trackGeo(new THREE.CylinderGeometry(0.076, 0.068, 0.16, 8));
-  const handGeo = trackGeo(new THREE.BoxGeometry(0.048, 0.075, 0.06));
+  const upperArmProfile = [
+    new THREE.Vector2(0.042, -0.24),
+    new THREE.Vector2(0.052, -0.10),
+    new THREE.Vector2(0.058, 0.0),
+  ];
+  const forearmProfile = [
+    new THREE.Vector2(0.032, -0.22),
+    new THREE.Vector2(0.044, -0.08),
+    new THREE.Vector2(0.044, 0.0),
+  ];
+  const upperArmGeo = trackGeo(new THREE.LatheGeometry(upperArmProfile, 10));
+  const forearmGeo = trackGeo(new THREE.LatheGeometry(forearmProfile, 10));
+  const sleeveGeo = trackGeo(new THREE.CylinderGeometry(0.072, 0.064, 0.16, 10));
+  const handGeo = trackGeo(new THREE.SphereGeometry(0.038, 8, 8));
 
   // Left Arm: Shoulder -> Upper Arm -> Elbow -> Forearm -> Hand (mounted to spinePivot)
   const leftArmPivot = new THREE.Group();
-  leftArmPivot.position.set(-0.25, 0.40, 0);
+  leftArmPivot.position.set(-0.23, 0.39, 0);
   spinePivot.add(leftArmPivot);
 
   const leftSleeve = new THREE.Mesh(sleeveGeo, tunicMat);
@@ -423,7 +457,6 @@ export function createProceduralCharacterRig(
   leftArmPivot.add(leftSleeve);
 
   const leftUpperArm = new THREE.Mesh(upperArmGeo, skinMat);
-  leftUpperArm.position.y = -0.12;
   leftUpperArm.castShadow = true;
   leftArmPivot.add(leftUpperArm);
 
@@ -432,17 +465,17 @@ export function createProceduralCharacterRig(
   leftArmPivot.add(leftElbowPivot);
 
   const leftForearm = new THREE.Mesh(forearmGeo, skinMat);
-  leftForearm.position.y = -0.11;
   leftForearm.castShadow = true;
   leftElbowPivot.add(leftForearm);
 
   const leftHand = new THREE.Mesh(handGeo, skinMat);
-  leftHand.position.set(0, -0.24, 0.01);
+  leftHand.scale.set(0.75, 1.15, 0.92);
+  leftHand.position.set(0, -0.235, 0.01);
   leftElbowPivot.add(leftHand);
 
   // Right Arm: Shoulder -> Upper Arm -> Elbow -> Forearm -> Hand (mounted to spinePivot)
   const rightArmPivot = new THREE.Group();
-  rightArmPivot.position.set(0.25, 0.40, 0);
+  rightArmPivot.position.set(0.23, 0.39, 0);
   spinePivot.add(rightArmPivot);
 
   const rightSleeve = new THREE.Mesh(sleeveGeo, tunicMat);
@@ -450,7 +483,6 @@ export function createProceduralCharacterRig(
   rightArmPivot.add(rightSleeve);
 
   const rightUpperArm = new THREE.Mesh(upperArmGeo, skinMat);
-  rightUpperArm.position.y = -0.12;
   rightUpperArm.castShadow = true;
   rightArmPivot.add(rightUpperArm);
 
@@ -459,12 +491,12 @@ export function createProceduralCharacterRig(
   rightArmPivot.add(rightElbowPivot);
 
   const rightForearm = new THREE.Mesh(forearmGeo, skinMat);
-  rightForearm.position.y = -0.11;
   rightForearm.castShadow = true;
   rightElbowPivot.add(rightForearm);
 
   const rightHand = new THREE.Mesh(handGeo, skinMat);
-  rightHand.position.set(0, -0.24, 0.01);
+  rightHand.scale.set(0.75, 1.15, 0.92);
+  rightHand.position.set(0, -0.235, 0.01);
   rightElbowPivot.add(rightHand);
 
   // Build switchable occupation tool meshes so reassigning occupations updates tools live!
@@ -573,13 +605,68 @@ export function createProceduralCharacterRig(
     }),
   );
   const carriedBundleMesh = new THREE.Mesh(
-    trackGeo(new THREE.BoxGeometry(0.28, 0.24, 0.24)),
+    trackGeo(new THREE.DodecahedronGeometry(0.18, 1)),
     carriedBundleMaterial,
   );
+  carriedBundleMesh.scale.set(1.05, 0.9, 1.0);
   carriedBundleMesh.position.set(0, 1.18, -0.22);
   carriedBundleMesh.castShadow = true;
   carriedBundleMesh.visible = false;
   bodyPivot.add(carriedBundleMesh);
+
+  // Sculpted Terracotta Clay Water Vessel + Pouring Stream Cone for Farmer Irrigation
+  const waterJarGroup = new THREE.Group();
+  const clayMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#a45332'),
+      roughness: 0.72,
+      metalness: 0.05,
+    }),
+  );
+  const jarProfile = [
+    new THREE.Vector2(0.05, 0.0),
+    new THREE.Vector2(0.135, 0.11),
+    new THREE.Vector2(0.145, 0.21),
+    new THREE.Vector2(0.075, 0.29),
+    new THREE.Vector2(0.095, 0.34),
+  ];
+  const clayJarMesh = new THREE.Mesh(trackGeo(new THREE.LatheGeometry(jarProfile, 14)), clayMat);
+  clayJarMesh.castShadow = true;
+  waterJarGroup.add(clayJarMesh);
+
+  const waterSurfaceDisc = new THREE.Mesh(
+    trackGeo(new THREE.CircleGeometry(0.075, 12)),
+    trackMat(
+      new THREE.MeshStandardMaterial({
+        color: new THREE.Color('#3ca2b8'),
+        roughness: 0.12,
+        metalness: 0.25,
+      }),
+    ),
+  );
+  waterSurfaceDisc.rotation.x = -Math.PI / 2;
+  waterSurfaceDisc.position.y = 0.31;
+  waterJarGroup.add(waterSurfaceDisc);
+
+  const waterStreamMesh = new THREE.Mesh(
+    trackGeo(new THREE.CylinderGeometry(0.025, 0.095, 0.95, 8, 1, true)),
+    trackMat(
+      new THREE.MeshBasicMaterial({
+        color: '#88e5f7',
+        transparent: true,
+        opacity: 0.72,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    ),
+  );
+  waterStreamMesh.position.set(0, 0.65, 0.38);
+  waterStreamMesh.rotation.x = 0.55;
+  waterStreamMesh.visible = false;
+  waterJarGroup.add(waterStreamMesh);
+
+  waterJarGroup.visible = false;
+  spinePivot.add(waterJarGroup);
 
   // ==========================================
   // PHASE 3 MILITARY WEAPONS, SHIELDS & EQUIPMENT
@@ -939,6 +1026,8 @@ export function createProceduralCharacterRig(
     tunicMaterial: tunicMat,
     carriedBundleMesh,
     carriedBundleMaterial,
+    waterJarGroup,
+    waterStreamMesh,
     toolMeshes,
     horseLegs,
     activePropType: entity.propType,
@@ -986,6 +1075,38 @@ export function updateProceduralCharacterAnimation(
 
   const phase = entity.gaitPhase;
   const state = entity.animationState;
+  const hydroPhase = entity.hydroPhase;
+
+  // Position & animate clay water vessel during river fetching, carrying, and crop watering
+  const showWaterJar =
+    state === 'drawing_water' ||
+    state === 'watering_crops' ||
+    hydroPhase === 'heading_to_water' ||
+    hydroPhase === 'carrying_water' ||
+    (entity.carriedWater ?? 0) > 0.05;
+
+  rig.waterJarGroup.visible = showWaterJar;
+  rig.waterStreamMesh.visible = false;
+  if (showWaterJar) {
+    if (state === 'drawing_water') {
+      rig.waterJarGroup.position.set(0, -0.26, 0.42);
+      rig.waterJarGroup.rotation.set(0.65 + Math.sin(phase) * 0.25, 0, 0);
+    } else if (state === 'watering_crops') {
+      rig.waterJarGroup.position.set(0.06, 0.05, 0.44);
+      rig.waterJarGroup.rotation.set(1.18 + Math.sin(phase * 1.4) * 0.14, 0, -0.15);
+      rig.waterStreamMesh.visible = true;
+      rig.waterStreamMesh.position.set(0, 0.48, 0.26);
+      rig.waterStreamMesh.rotation.set(-0.55, 0, 0);
+    } else if (hydroPhase === 'carrying_water' || (entity.carriedWater ?? 0) > 0.05) {
+      // Carried gracefully on left shoulder/hip while walking back from river
+      rig.waterJarGroup.position.set(-0.24, 0.34, 0.06);
+      rig.waterJarGroup.rotation.set(0.06, 0, 0.18);
+    } else {
+      // Empty clay jar carried at side while walking to the river
+      rig.waterJarGroup.position.set(-0.22, -0.12, 0.16);
+      rig.waterJarGroup.rotation.set(0.35, 0, 0.1);
+    }
+  }
 
   // Animate horse legs when mounted
   if (entity.isMounted && rig.horseLegs.length === 4) {
@@ -1025,9 +1146,14 @@ export function updateProceduralCharacterAnimation(
     rig.rightLegPivot.rotation.x = -stride * 0.52;
     rig.rightKneePivot.rotation.x = Math.max(0, -stride) * 0.62;
 
-    // Fluid arm swing with natural elbow flex
-    rig.leftArmPivot.rotation.x = -stride * 0.44;
-    rig.leftElbowPivot.rotation.x = -0.22 - Math.max(0, -stride) * 0.38;
+    // Fluid arm swing with natural elbow flex (steady left arm if carrying water jar)
+    if (hydroPhase === 'carrying_water' || (entity.carriedWater ?? 0) > 0.05) {
+      rig.leftArmPivot.rotation.x = -0.82;
+      rig.leftElbowPivot.rotation.x = -1.22;
+    } else {
+      rig.leftArmPivot.rotation.x = -stride * 0.44;
+      rig.leftElbowPivot.rotation.x = -0.22 - Math.max(0, -stride) * 0.38;
+    }
     rig.rightArmPivot.rotation.x = stride * 0.44;
     rig.rightElbowPivot.rotation.x = -0.22 - Math.max(0, stride) * 0.38;
   } else if (state === 'running') {
@@ -1064,6 +1190,34 @@ export function updateProceduralCharacterAnimation(
     rig.rightElbowPivot.rotation.x = -0.65 + strike * 0.75;
     rig.leftArmPivot.rotation.x = -0.75 + strike * 0.65;
     rig.leftElbowPivot.rotation.x = -0.55 + strike * 0.55;
+  } else if (state === 'drawing_water') {
+    // Crouch at riverbank dipping clay water jar cleanly into the current
+    const dip = Math.sin(phase);
+    rig.bodyPivot.position.y = -0.26 + Math.abs(dip) * 0.025;
+    rig.spinePivot.rotation.set(0.58 + dip * 0.08, 0, 0);
+    rig.headPivot.rotation.set(0.24, 0, 0);
+    rig.leftLegPivot.rotation.x = -0.58;
+    rig.leftKneePivot.rotation.x = 0.92;
+    rig.rightLegPivot.rotation.x = 0.22;
+    rig.rightKneePivot.rotation.x = 0.56;
+    rig.leftArmPivot.rotation.x = -0.85 + dip * 0.16;
+    rig.leftElbowPivot.rotation.x = -0.28;
+    rig.rightArmPivot.rotation.x = -0.88 + dip * 0.18;
+    rig.rightElbowPivot.rotation.x = -0.25;
+  } else if (state === 'watering_crops') {
+    // Lean forward holding clay jar and pouring arched water stream across furrows
+    const pour = Math.sin(phase * 1.3);
+    rig.bodyPivot.position.y = -0.04;
+    rig.spinePivot.rotation.set(0.28 + pour * 0.04, pour * 0.12, 0);
+    rig.headPivot.rotation.set(0.20, 0, 0);
+    rig.leftLegPivot.rotation.x = -0.14;
+    rig.leftKneePivot.rotation.x = 0.20;
+    rig.rightLegPivot.rotation.x = 0.16;
+    rig.rightKneePivot.rotation.x = 0.18;
+    rig.leftArmPivot.rotation.x = -0.95;
+    rig.leftElbowPivot.rotation.x = -0.52;
+    rig.rightArmPivot.rotation.x = -1.08 + pour * 0.10;
+    rig.rightElbowPivot.rotation.x = -0.45;
   } else if (state === 'farming' || state === 'fishing') {
     // Stooping waist bend into furrow & rhythmic hoe tending motion
     const cycle = Math.sin(phase);
