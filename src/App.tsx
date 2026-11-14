@@ -101,9 +101,6 @@ export default function App() {
     const engine = new AkanuEngine(container, {
       onSelectionChange: (entities) => {
         setSelectedEntities(entities);
-        if (entities.length > 0) {
-          soundEngine.playSelectEntity(entities[0].category);
-        }
       },
       onEconomySnapshot: (snap) => {
         setActiveGame((prev) => ({

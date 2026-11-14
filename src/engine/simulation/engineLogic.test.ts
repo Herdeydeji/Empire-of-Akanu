@@ -1148,6 +1148,29 @@ test('Village livestock herds spawn with cattle, goats, and chickens and roam dr
   }
 });
 
+test('Spatial soundscape engine safely processes listener pose, ambience telemetry, voices, footsteps, wildlife, and completion cues', async () => {
+  const { soundEngine } = await import('../audio/soundEngine');
+  soundEngine.updateSpatialListener({ targetX: 2, targetZ: 4, yaw: 0.52, distance: 34 });
+  soundEngine.updateAmbienceTelemetry(
+    { windIntensity: 0.65, riverProximity: 0.72, riverPan: -0.35, villageBustle: 0.6, elevationRatio: 0.4 },
+    12.5,
+  );
+  soundEngine.setMusicMood('expansion', 'golden_savannah');
+  soundEngine.playVillagerVoice('greeting', 3, 2, 11);
+  soundEngine.playFootstep('grass', 1, 2, false);
+  soundEngine.playFootstep('wet_bank', 2, 18, true);
+  soundEngine.playWorkAction('build', 0, 0);
+  soundEngine.playHydroAction('draw_water', 2, 19);
+  soundEngine.playHydroAction('pour_water', 10, 4);
+  soundEngine.playBirdFlight('golden_savannah', 8, -4, true);
+  soundEngine.playLivestockSound('goat', 6, 3);
+  soundEngine.playBuildingCompleted(4, 2);
+  soundEngine.playAlert('research');
+  soundEngine.playAlert('recruit');
+  assert.ok(true);
+});
+
+
 
 
 

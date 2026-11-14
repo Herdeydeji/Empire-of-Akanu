@@ -33,11 +33,15 @@ import {
   stepCameraRig,
   zoomCamera,
 } from './camera/rtsCameraMath';
-import { resolveAdaptiveMusicMood, soundEngine } from './audio/soundEngine';
+import {
+  FootstepSurface,
+  resolveAdaptiveMusicMood,
+  soundEngine,
+} from './audio/soundEngine';
 import { updateProceduralCharacterAnimation } from './graphics/characterFactory';
 import { createProceduralTextureSet, ProceduralTextureSet } from './graphics/proceduralTextures';
 import { buildProceduralWorld, BuiltWorldScene } from './graphics/worldBuilder';
-import { sampleTerrainHeight, WATER_LEVEL } from './math/noise';
+import { getRiverCenterZ, sampleTerrainHeight, WATER_LEVEL } from './math/noise';
 import { cloneWorldEntities } from './persistence/saveSystem';
 import {
   assignVillagerOccupation,
@@ -230,6 +234,14 @@ export class AkanuEngine {
   private hudSyncAccumulator = 0;
   private lastHoverRaycastMs = 0;
 
+  // Spatial Audio & Foley Synchronization State
+  private celebratedCompletedBuildingIds = new Set<string>();
+  private charLastStepWave = new Map<string, number>();
+  private charLastActionWave = new Map<string, number>();
+  private ambientVoiceCooldownSec = 1.6;
+  private birdCheckCooldownSec = 2.5;
+  private livestockCheckCooldownSec = 3.2;
+
   // Input state
   private readonly keysHeld = new Set<string>();
   private pointerDownPos = { x: 0, y: 0 };
@@ -408,6 +420,15 @@ export class AkanuEngine {
       saved?.worldEntities,
     );
     this.scene.add(this.activeWorld.root);
+
+    this.celebratedCompletedBuildingIds.clear();
+    for (const bld of this.activeWorld.buildings) {
+      if (bld.constructionState === 'completed') {
+        this.celebratedCompletedBuildingIds.add(bld.id);
+      }
+    }
+    this.charLastStepWave.clear();
+    this.charLastActionWave.clear();
 
     const isAbundantSandbox =
       saved?.gameMode === 'sandbox' && (saved?.capacities?.wood ?? 0) > 1100;
@@ -654,6 +675,12 @@ export class AkanuEngine {
     this.updateSelectionRings();
     const selectedSnapshots = this.getSelectedEntitiesSnapshot();
     this.callbacks.onSelectionChange(selectedSnapshots);
+    soundEngine.playSelectEntity(
+      entity.category,
+      entity.position.x,
+      entity.position.z,
+      this.hashEntityVoiceSeed(entity.id),
+    );
     return selectedSnapshots;
   }
 
@@ -671,6 +698,14 @@ export class AkanuEngine {
     this.updateSelectionRings();
     const snaps = this.getSelectedEntitiesSnapshot();
     this.callbacks.onSelectionChange(snaps);
+    if (snaps.length > 0) {
+      soundEngine.playSelectEntity(
+        snaps[0].category,
+        snaps[0].position.x,
+        snaps[0].position.z,
+        this.hashEntityVoiceSeed(snaps[0].id),
+      );
+    }
     return snaps;
   }
 
@@ -778,6 +813,12 @@ export class AkanuEngine {
         1,
       );
     }
+    soundEngine.playVillagerVoice(
+      'command',
+      villagers[0].position.x,
+      villagers[0].position.z,
+      this.hashEntityVoiceSeed(villagers[0].id),
+    );
     this.flushEconomyChangesImmediate();
   }
 
@@ -863,6 +904,14 @@ export class AkanuEngine {
     const summary = commandVillagersToEntity(workers, target, this.economyRuntime);
     if (summary) {
       pushEconomyNotification(this.economyRuntime, `dispatch_${target.id}`, 'info', summary, 1);
+      if (workers[0]) {
+        soundEngine.playVillagerVoice(
+          'command',
+          workers[0].position.x,
+          workers[0].position.z,
+          this.hashEntityVoiceSeed(workers[0].id),
+        );
+      }
       this.flushEconomyChangesImmediate();
     }
     return summary;
@@ -921,6 +970,12 @@ export class AkanuEngine {
       this.activeWorld.moveMarkerMesh.visible = true;
       this.moveMarkerTimer = 1.1;
     }
+    soundEngine.playVillagerVoice(
+      'command',
+      units[0].position.x,
+      units[0].position.z,
+      this.hashEntityVoiceSeed(units[0].id),
+    );
     this.flushEconomyChangesImmediate();
   }
 
@@ -928,6 +983,12 @@ export class AkanuEngine {
     const units = this.getSelectedVillagers().filter((u) => u.isMilitary && u.health > 0);
     if (units.length === 0) return;
     commandMilitaryAttack(units, targetEntity);
+    soundEngine.playVillagerVoice(
+      'work_call',
+      units[0].position.x,
+      units[0].position.z,
+      this.hashEntityVoiceSeed(units[0].id),
+    );
     this.flushEconomyChangesImmediate();
   }
 
@@ -974,6 +1035,12 @@ export class AkanuEngine {
     this.activeWorld.moveMarkerMesh.visible = true;
     this.moveMarkerTimer = 1.1;
 
+    soundEngine.playVillagerVoice(
+      'command',
+      villagers[0].position.x,
+      villagers[0].position.z,
+      this.hashEntityVoiceSeed(villagers[0].id),
+    );
     this.flushEconomyChangesImmediate();
   }
 
@@ -1097,6 +1164,7 @@ export class AkanuEngine {
 
     this.activeWorld.addBuildingEntity(result.building);
     this.economyRuntime.dirtyBuildingIds.delete(result.building.id);
+    soundEngine.playWorkAction('build', result.building.position.x, result.building.position.z);
 
     if (!keepPlacing) {
       this.startBuildingPlacement(null);
@@ -1307,8 +1375,15 @@ export class AkanuEngine {
     }
 
     if (rt.newlySpawnedCharacters.length > 0) {
+      let playerRecruitSpawned = false;
       for (const spawned of rt.newlySpawnedCharacters) {
         this.activeWorld.addCharacterEntity(spawned);
+        if (spawned.kingdomId === this.currentParams.kingdomId && spawned.isMilitary) {
+          playerRecruitSpawned = true;
+        }
+      }
+      if (!this.cameraTourMode && playerRecruitSpawned) {
+        soundEngine.playAlert('recruit');
       }
       rt.newlySpawnedCharacters.length = 0;
     }
@@ -1477,38 +1552,147 @@ export class AkanuEngine {
         if (frameCombatCount > 0) soundEngine.playCombatHit('sword');
       }
 
-      const hadCompletedBuilding = [...this.economyRuntime.dirtyBuildingIds].some((bId) => {
-        const b = this.economyRuntime?.buildings.find((item) => item.id === bId);
-        return b && b.kingdomId === this.currentParams.kingdomId && b.constructionState === 'completed';
-      });
-      if (!this.cameraTourMode && hadCompletedBuilding) {
-        soundEngine.playAlert('complete');
+      // Building Completion Celebration (Triumphant Chime + Village Cheers + Rising Golden Light Aura)
+      for (const bId of this.economyRuntime.dirtyBuildingIds) {
+        const b = this.economyRuntime.buildings.find((item) => item.id === bId);
+        if (
+          b &&
+          b.kingdomId === this.currentParams.kingdomId &&
+          b.constructionState === 'completed' &&
+          !this.celebratedCompletedBuildingIds.has(b.id)
+        ) {
+          this.celebratedCompletedBuildingIds.add(b.id);
+          if (!this.cameraTourMode) {
+            this.activeWorld.spawnVfxBurst(
+              b.position.x,
+              b.position.y,
+              b.position.z,
+              'building_complete',
+            );
+            soundEngine.playBuildingCompleted(b.position.x, b.position.z);
+          }
+        }
       }
 
       this.syncDirtyWorldVisuals();
       this.syncProjectilesVisual();
 
-      // Animate all articulated 3D character rigs (tools, cargo bundles, chopping/mining/building/walking)
-      let workerSfxKind: 'chop' | 'mine' | 'build' | null = null;
+      // Update spatial audio listener & continuous wind/river/village ambience
+      soundEngine.updateSpatialListener({
+        targetX: this.cameraRig.targetX,
+        targetZ: this.cameraRig.targetZ,
+        yaw: this.cameraRig.yaw,
+        distance: this.cameraRig.distance,
+      });
+
+      const tx = this.cameraRig.targetX;
+      const tz = this.cameraRig.targetZ;
+      let waterNearX = tx;
+      let waterNearZ = getRiverCenterZ(tx, this.currentParams.seed);
+      if (region.terrain.hasCoastline) {
+        const shorelineZ = 25.0 + Math.sin(tx * 0.042) * 6.0 + Math.cos(tx * 0.09) * 2.5;
+        const streamX = -24 + tz * 0.35 + Math.sin(tz * 0.08) * 3.5;
+        if (Math.abs(tx - streamX) < Math.abs(tz - shorelineZ) && tz < shorelineZ + 4) {
+          waterNearX = streamX;
+          waterNearZ = tz;
+        } else {
+          waterNearX = tx;
+          waterNearZ = shorelineZ;
+        }
+      }
+      const wDx = waterNearX - tx;
+      const wDz = waterNearZ - tz;
+      const riverDist = Math.hypot(wDx, wDz);
+      const riverProjRight =
+        wDx * Math.cos(this.cameraRig.yaw) + wDz * -Math.sin(this.cameraRig.yaw);
+      const riverPan = Math.max(-0.85, Math.min(0.85, riverProjRight / 18));
+      const zoomGain = Math.max(0.32, Math.min(1.2, 34 / Math.max(15, this.cameraRig.distance)));
+      const riverProximity = Math.max(0, Math.min(1, 1 - riverDist / 38)) * zoomGain;
+      const groundAtCam = sampleTerrainHeight(tx, tz, region, this.currentParams.seed);
+      const elevationRatio = Math.max(0, Math.min(1, (groundAtCam - 0.6) / 7.5));
+
+      let nearbyActiveWorkers = 0;
+      const nearbyTalkingCandidates: CharacterEntity[] = [];
+
+      // Animate all articulated 3D character rigs + stride-synced footsteps, activity foley, and voices
       for (let i = 0; i < this.activeWorld.characterRigs.length; i++) {
         const rig = this.activeWorld.characterRigs[i];
         const entity = this.activeWorld.characters[i];
         if (rig && entity) {
           updateProceduralCharacterAnimation(rig, entity);
-          if (
-            !this.cameraTourMode &&
-            entity.kingdomId === this.currentParams.kingdomId &&
-            Math.hypot(entity.position.x - this.cameraRig.targetX, entity.position.z - this.cameraRig.targetZ) < 28
-          ) {
-            if (entity.animationState === 'chopping') workerSfxKind = 'chop';
-            else if (entity.animationState === 'mining') workerSfxKind = 'mine';
-            else if (entity.animationState === 'building') workerSfxKind = 'build';
+
+          const distToCam = Math.hypot(entity.position.x - tx, entity.position.z - tz);
+          if (!this.cameraTourMode && entity.health > 0 && distToCam < 34) {
+            nearbyActiveWorkers++;
+            if (distToCam < 28 && entity.kingdomId === this.currentParams.kingdomId) {
+              nearbyTalkingCandidates.push(entity);
+            }
+
+            const stepWave = Math.sin(entity.gaitPhase);
+            const prevStep = this.charLastStepWave.get(entity.id) ?? 0;
+            this.charLastStepWave.set(entity.id, stepWave);
+
+            const isMoving =
+              entity.animationState === 'walking' ||
+              entity.animationState === 'running' ||
+              entity.animationState === 'charging' ||
+              entity.animationState === 'retreating';
+
+            if (
+              isMoving &&
+              ((prevStep <= 0 && stepWave > 0) || (prevStep >= 0 && stepWave < 0))
+            ) {
+              const surface: FootstepSurface =
+                entity.position.y < WATER_LEVEL + 0.52
+                  ? 'wet_bank'
+                  : Math.hypot(entity.position.x, entity.position.z) < 16.5 ||
+                      entity.animationState === 'running'
+                    ? 'soil'
+                    : 'grass';
+              soundEngine.playFootstep(
+                surface,
+                entity.position.x,
+                entity.position.z,
+                entity.animationState === 'running' || entity.animationState === 'charging',
+              );
+            }
+
+            // Work & Hydro-Farming Foley synced to swing/pour peak
+            const prevAct = this.charLastActionWave.get(entity.id) ?? 0;
+            this.charLastActionWave.set(entity.id, stepWave);
+            if (prevAct <= 0.88 && stepWave > 0.88) {
+              const st = entity.animationState;
+              if (st === 'chopping') {
+                soundEngine.playWorkAction('chop', entity.position.x, entity.position.z);
+              } else if (st === 'mining') {
+                soundEngine.playWorkAction('mine', entity.position.x, entity.position.z);
+              } else if (st === 'building') {
+                soundEngine.playWorkAction('build', entity.position.x, entity.position.z);
+              } else if (st === 'farming') {
+                soundEngine.playWorkAction('harvest', entity.position.x, entity.position.z);
+              } else if (st === 'crafting') {
+                soundEngine.playWorkAction('craft', entity.position.x, entity.position.z);
+              } else if (st === 'drawing_water') {
+                soundEngine.playHydroAction('draw_water', entity.position.x, entity.position.z);
+              } else if (st === 'watering_crops') {
+                soundEngine.playHydroAction('pour_water', entity.position.x, entity.position.z);
+              } else if (st === 'shooting_bow') {
+                soundEngine.playCombatHit('bow', entity.position.x, entity.position.z);
+              }
+            }
           }
+
           if (
-            (entity.animationState === 'attacking_melee' || entity.animationState === 'attacking_spear') &&
+            (entity.animationState === 'attacking_melee' ||
+              entity.animationState === 'attacking_spear') &&
             Math.sin(entity.gaitPhase) > 0.94
           ) {
-            this.activeWorld.spawnVfxBurst(entity.position.x, entity.position.y + 1.1, entity.position.z, 'spark');
+            this.activeWorld.spawnVfxBurst(
+              entity.position.x,
+              entity.position.y + 1.1,
+              entity.position.z,
+              'spark',
+            );
           } else if (
             entity.animationState === 'drawing_water' &&
             entity.waterTarget &&
@@ -1527,9 +1711,108 @@ export class AkanuEngine {
           }
         }
       }
+
       this.activeWorld.updateLivestockVisuals();
-      if (workerSfxKind && Math.random() < 0.08) {
-        soundEngine.playWorkAction(workerSfxKind);
+
+      if (!this.cameraTourMode) {
+        const villageBustle =
+          Math.max(0, Math.min(1, nearbyActiveWorkers / 9)) *
+          Math.max(0.15, 1 - this.cameraRig.distance / 72);
+        soundEngine.updateAmbienceTelemetry(
+          {
+            windIntensity: 0.36 + elevationRatio * 0.45,
+            riverProximity,
+            riverPan,
+            villageBustle,
+            elevationRatio,
+          },
+          this.elapsedSeconds,
+        );
+
+        // Ambient Villager Conversations, Greetings & Work Calls
+        this.ambientVoiceCooldownSec -= frameDt;
+        if (this.ambientVoiceCooldownSec <= 0 && nearbyTalkingCandidates.length > 0) {
+          this.ambientVoiceCooldownSec = 2.4 + Math.random() * 2.3;
+          const speaker =
+            nearbyTalkingCandidates[
+              Math.floor(Math.random() * nearbyTalkingCandidates.length)
+            ];
+          const hasNeighbor = nearbyTalkingCandidates.some(
+            (other) =>
+              other.id !== speaker.id &&
+              Math.hypot(
+                other.position.x - speaker.position.x,
+                other.position.z - speaker.position.z,
+              ) < 7.0,
+          );
+          const isEffortWork =
+            speaker.animationState === 'chopping' ||
+            speaker.animationState === 'mining' ||
+            speaker.animationState === 'building' ||
+            speaker.animationState === 'watering_crops';
+          const voiceKind = hasNeighbor
+            ? 'greeting'
+            : isEffortWork
+              ? 'work_call'
+              : 'chatter';
+          soundEngine.playVillagerVoice(
+            voiceKind,
+            speaker.position.x,
+            speaker.position.z,
+            this.hashEntityVoiceSeed(speaker.id),
+          );
+        }
+
+        // Flying Bird Wingbeats & Soaring Calls when flock passes overhead
+        this.birdCheckCooldownSec -= frameDt;
+        if (this.birdCheckCooldownSec <= 0 && this.activeWorld.birdPositions.length > 0) {
+          this.birdCheckCooldownSec = 3.2 + Math.random() * 2.8;
+          let nearestBird = this.activeWorld.birdPositions[0];
+          let nearestDist = Infinity;
+          for (const bp of this.activeWorld.birdPositions) {
+            const d = Math.hypot(bp.x - tx, bp.z - tz);
+            if (d < nearestDist) {
+              nearestDist = d;
+              nearestBird = bp;
+            }
+          }
+          if (nearestDist < 48) {
+            soundEngine.playBirdFlight(
+              this.currentParams.regionId,
+              nearestBird.x,
+              nearestBird.z,
+              true,
+            );
+          }
+        }
+
+        // Domestic Pasture Livestock Sounds
+        this.livestockCheckCooldownSec -= frameDt;
+        if (this.livestockCheckCooldownSec <= 0 && this.activeWorld.livestock.length > 0) {
+          this.livestockCheckCooldownSec = 4.2 + Math.random() * 3.6;
+          const nearAnimals = this.activeWorld.livestock.filter(
+            (a) => Math.hypot(a.position.x - tx, a.position.z - tz) < 32,
+          );
+          if (nearAnimals.length > 0) {
+            const picked = nearAnimals[Math.floor(Math.random() * nearAnimals.length)];
+            soundEngine.playLivestockSound(
+              picked.kind,
+              picked.position.x,
+              picked.position.z,
+            );
+          }
+        }
+      } else {
+        soundEngine.updateAmbienceTelemetry(
+          {
+            windIntensity: 0.42,
+            riverProximity: 0.25,
+            riverPan: 0,
+            villageBustle: 0.2,
+            elevationRatio: 0.25,
+          },
+          this.elapsedSeconds,
+        );
       }
 
       if (this.moveMarkerTimer > 0) {
@@ -1700,6 +1983,12 @@ export class AkanuEngine {
         const msg = commandVillagersToEntity(selectedVillagers, hitEntity, this.economyRuntime);
         if (msg) {
           pushEconomyNotification(this.economyRuntime, `cmd_${hitEntity.id}`, 'info', msg, 1);
+          soundEngine.playVillagerVoice(
+            'command',
+            selectedVillagers[0].position.x,
+            selectedVillagers[0].position.z,
+            this.hashEntityVoiceSeed(selectedVillagers[0].id),
+          );
           this.flushEconomyChangesImmediate();
         }
       }
@@ -1742,6 +2031,12 @@ export class AkanuEngine {
       const msg = commandVillagersToEntity(selectedVillagers, hitEntity, this.economyRuntime);
       if (msg) {
         pushEconomyNotification(this.economyRuntime, `rcmd_${hitEntity.id}`, 'info', msg, 1);
+        soundEngine.playVillagerVoice(
+          'command',
+          selectedVillagers[0].position.x,
+          selectedVillagers[0].position.z,
+          this.hashEntityVoiceSeed(selectedVillagers[0].id),
+        );
         this.flushEconomyChangesImmediate();
       }
       return;
@@ -1788,6 +2083,7 @@ export class AkanuEngine {
   };
 
   private onMouseDown = (e: MouseEvent): void => {
+    soundEngine.unlockAndStartMusic();
     if (this.cameraTourMode) return;
     this.activeMouseButton = e.button;
     this.pointerDownPos = { x: e.clientX, y: e.clientY };
@@ -1861,6 +2157,7 @@ export class AkanuEngine {
   };
 
   private onTouchStart = (e: TouchEvent): void => {
+    soundEngine.unlockAndStartMusic();
     if (this.cameraTourMode) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
@@ -1977,6 +2274,7 @@ export class AkanuEngine {
       goldAmount,
     );
     if (res.ok) {
+      soundEngine.playAlert('peace');
       if (res.event) pushWorldEvent(this.worldEventState, res.event);
       updateAllKingdomIntelligence(
         this.aiKingdomManager,
@@ -2000,6 +2298,7 @@ export class AkanuEngine {
       kind,
     );
     if (result.accepted) {
+      soundEngine.playAlert('peace');
       const evt = addDiplomaticTreaty(
         this.diplomacyState,
         this.currentParams.kingdomId,
@@ -2031,6 +2330,7 @@ export class AkanuEngine {
       this.economyRuntime?.elapsedSeconds ?? 0,
     );
     if (res.accepted && res.event) {
+      soundEngine.playAlert('peace');
       pushWorldEvent(this.worldEventState, res.event);
       this.flushEconomyChangesImmediate();
     }
@@ -2046,9 +2346,19 @@ export class AkanuEngine {
       this.economyRuntime?.elapsedSeconds ?? 0,
     );
     if (evt) {
+      soundEngine.playAlert('war');
       pushWorldEvent(this.worldEventState, evt);
     }
     this.flushEconomyChangesImmediate();
+  }
+
+  private hashEntityVoiceSeed(id: string): number {
+    let h = 2166136261;
+    for (let i = 0; i < id.length; i++) {
+      h ^= id.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0) % 97;
   }
 
   public getAIKingdomsData(): Record<KingdomId, AIKingdomRuntime> {

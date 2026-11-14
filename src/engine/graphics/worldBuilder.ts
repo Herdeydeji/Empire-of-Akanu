@@ -51,7 +51,13 @@ interface ResourceNodeVisualEntry {
   depletedVisual: THREE.Object3D | null;
 }
 
-export type VfxBurstKind = 'dust' | 'spark' | 'smoke' | 'water_drop' | 'water_ripple';
+export type VfxBurstKind =
+  | 'dust'
+  | 'spark'
+  | 'smoke'
+  | 'water_drop'
+  | 'water_ripple'
+  | 'building_complete';
 
 export interface BuiltWorldScene {
   root: THREE.Group;
@@ -63,6 +69,7 @@ export interface BuiltWorldScene {
   entitiesById: Map<string, SelectableEntity>;
   characterRigs: CharacterVisualRig[];
   livestockRigs: LivestockVisualRig[];
+  birdPositions: { x: number; y: number; z: number }[];
   raycastTargets: THREE.Object3D[];
   terrainMesh: THREE.Mesh;
   waterMesh: THREE.Mesh;
@@ -1704,6 +1711,11 @@ export function buildProceduralWorld(
       });
     }
   }
+  const birdPositions = birdFlock.map((b) => ({
+    x: b.center[0] + b.radius,
+    y: b.center[1],
+    z: b.center[2],
+  }));
 
   // 5C-2. Camera-Tracked Golden Sunlit Dust Motes & Windborne Leaves
   const dustBoxHalf = 34;
@@ -1855,8 +1867,132 @@ export function buildProceduralWorld(
     ripplePool.push({ mesh, mat, active: false, age: 0, life: 1.15 });
   }
 
+  // 5E. Pooled Building Completion Celebration VFX (Rising Golden Aura & Spiral Shimmer Motes)
+  interface CompletionAuraSlot {
+    haloMesh: THREE.Mesh;
+    haloMat: THREE.MeshBasicMaterial;
+    pillarMesh: THREE.Mesh;
+    pillarMat: THREE.MeshBasicMaterial;
+    baseY: number;
+    active: boolean;
+    age: number;
+    life: number;
+  }
+  const auraHaloGeo = track(new THREE.RingGeometry(0.85, 1.38, 36));
+  auraHaloGeo.rotateX(-Math.PI / 2);
+
+  const auraPillarGeo = track(new THREE.CylinderGeometry(1.15, 2.15, 5.6, 28, 4, true));
+  auraPillarGeo.translate(0, 2.8, 0);
+  {
+    const pPos = auraPillarGeo.attributes.position as THREE.BufferAttribute;
+    const cols = new Float32Array(pPos.count * 3);
+    for (let i = 0; i < pPos.count; i++) {
+      const hFrac = Math.max(0, Math.min(1, pPos.getY(i) / 5.6));
+      // Warm bright gold near base/mid, tapering gracefully to soft transparency near top
+      const fade = Math.pow(1 - hFrac, 1.35) * (0.35 + 0.65 * Math.sin(hFrac * Math.PI));
+      cols[i * 3] = 1.0 * fade;
+      cols[i * 3 + 1] = 0.84 * fade;
+      cols[i * 3 + 2] = 0.36 * fade;
+    }
+    auraPillarGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  }
+
+  const completionAuraPool: CompletionAuraSlot[] = [];
+  for (let a = 0; a < 5; a++) {
+    const haloMat = track(
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color('#ffd85c'),
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    const haloMesh = new THREE.Mesh(auraHaloGeo, haloMat);
+    haloMesh.visible = false;
+    haloMesh.renderOrder = 7;
+    root.add(haloMesh);
+
+    const pillarMat = track(
+      new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    const pillarMesh = new THREE.Mesh(auraPillarGeo, pillarMat);
+    pillarMesh.visible = false;
+    pillarMesh.renderOrder = 7;
+    root.add(pillarMesh);
+
+    completionAuraPool.push({
+      haloMesh,
+      haloMat,
+      pillarMesh,
+      pillarMat,
+      baseY: 0,
+      active: false,
+      age: 0,
+      life: 1.85,
+    });
+  }
+
+  interface GoldenMoteSlot {
+    sprite: THREE.Sprite;
+    mat: THREE.SpriteMaterial;
+    active: boolean;
+    age: number;
+    life: number;
+    centerX: number;
+    centerZ: number;
+    baseY: number;
+    angle: number;
+    angSpeed: number;
+    radius: number;
+    vy: number;
+    baseScale: number;
+  }
+  const goldenMotePool: GoldenMoteSlot[] = [];
+  for (let g = 0; g < 38; g++) {
+    const mat = track(
+      new THREE.SpriteMaterial({
+        map: textures.dustMoteMap,
+        color: new THREE.Color('#ffe57f'),
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    const sprite = new THREE.Sprite(mat);
+    sprite.visible = false;
+    sprite.renderOrder = 8;
+    root.add(sprite);
+    goldenMotePool.push({
+      sprite,
+      mat,
+      active: false,
+      age: 0,
+      life: 1.6,
+      centerX: 0,
+      centerZ: 0,
+      baseY: 0,
+      angle: 0,
+      angSpeed: 2.0,
+      radius: 1.5,
+      vy: 2.5,
+      baseScale: 0.6,
+    });
+  }
+
   let vfxCursor = 0;
   let rippleCursor = 0;
+  let auraCursor = 0;
+  let goldenCursor = 0;
   let smokeEmitTimer = 0;
 
   const spawnVfxBurst = (
@@ -1865,6 +2001,49 @@ export function buildProceduralWorld(
     z: number,
     kind: VfxBurstKind,
   ) => {
+    if (kind === 'building_complete') {
+      const aura = completionAuraPool[auraCursor % completionAuraPool.length];
+      auraCursor++;
+      aura.active = true;
+      aura.age = 0;
+      aura.life = 1.9;
+      aura.baseY = y;
+      aura.haloMesh.visible = true;
+      aura.haloMesh.position.set(x, y + 0.14, z);
+      aura.haloMesh.scale.setScalar(1.1);
+      aura.haloMat.opacity = 0.85;
+      aura.pillarMesh.visible = true;
+      aura.pillarMesh.position.set(x, y + 0.05, z);
+      aura.pillarMesh.scale.set(1.0, 0.4, 1.0);
+      aura.pillarMat.opacity = 0.52;
+
+      const moteCount = quality === 'low' ? 10 : 18;
+      for (let m = 0; m < moteCount; m++) {
+        const gm = goldenMotePool[goldenCursor % goldenMotePool.length];
+        goldenCursor++;
+        gm.active = true;
+        gm.age = 0;
+        gm.life = 1.35 + Math.random() * 0.65;
+        gm.centerX = x;
+        gm.centerZ = z;
+        gm.baseY = y + 0.35 + Math.random() * 0.8;
+        gm.angle = (m / moteCount) * Math.PI * 2 + Math.random() * 0.4;
+        gm.angSpeed = 1.4 + Math.random() * 1.4;
+        gm.radius = 1.1 + Math.random() * 1.85;
+        gm.vy = 2.1 + Math.random() * 1.9;
+        gm.baseScale = 0.48 + Math.random() * 0.42;
+        gm.sprite.visible = true;
+        gm.sprite.position.set(
+          x + Math.cos(gm.angle) * gm.radius,
+          gm.baseY,
+          z + Math.sin(gm.angle) * gm.radius,
+        );
+        gm.sprite.scale.setScalar(gm.baseScale);
+        gm.mat.opacity = 0.92;
+      }
+      return;
+    }
+
     if (kind === 'water_ripple') {
       const slot = ripplePool[rippleCursor % ripplePool.length];
       rippleCursor++;
@@ -2017,6 +2196,7 @@ export function buildProceduralWorld(
     entitiesById,
     characterRigs,
     livestockRigs,
+    birdPositions,
     raycastTargets,
     terrainMesh,
     waterMesh,
@@ -2130,17 +2310,22 @@ export function buildProceduralWorld(
         wl.sprite.material.rotation = elapsedSeconds * 1.35 + wl.phase;
       }
 
-      for (const b of birdFlock) {
+      for (let i = 0; i < birdFlock.length; i++) {
+        const b = birdFlock[i];
         const ang = elapsedSeconds * b.speed + b.phase;
-        b.group.position.set(
-          b.center[0] + Math.cos(ang) * b.radius,
-          b.center[1] + Math.sin(elapsedSeconds * 0.7 + b.phase) * 0.9,
-          b.center[2] + Math.sin(ang) * b.radius,
-        );
+        const bx = b.center[0] + Math.cos(ang) * b.radius;
+        const by = b.center[1] + Math.sin(elapsedSeconds * 0.7 + b.phase) * 0.9;
+        const bz = b.center[2] + Math.sin(ang) * b.radius;
+        b.group.position.set(bx, by, bz);
         b.group.rotation.y = -ang;
         const flap = Math.sin(elapsedSeconds * 6.5 + b.phase) * 0.45;
         b.leftWing.rotation.z = flap;
         b.rightWing.rotation.z = -flap;
+        if (birdPositions[i]) {
+          birdPositions[i].x = bx;
+          birdPositions[i].y = by;
+          birdPositions[i].z = bz;
+        }
       }
 
       // Gentle woodsmoke from hearths/smithies & construction dust
@@ -2212,6 +2397,46 @@ export function buildProceduralWorld(
         }
         rSlot.mesh.scale.setScalar(0.55 + t * 2.15);
         rSlot.mat.opacity = Math.max(0, (1 - t) * 0.82);
+      }
+
+      for (const aura of completionAuraPool) {
+        if (!aura.active) continue;
+        aura.age += dt;
+        const t = aura.age / aura.life;
+        if (t >= 1) {
+          aura.active = false;
+          aura.haloMesh.visible = false;
+          aura.pillarMesh.visible = false;
+          continue;
+        }
+        const easeOut = 1 - Math.pow(1 - t, 2.2);
+        const fade = t < 0.16 ? t / 0.16 : 1 - (t - 0.16) / 0.84;
+        aura.haloMesh.scale.setScalar(1.0 + easeOut * 4.4);
+        aura.haloMat.opacity = Math.max(0, fade * 0.82);
+        aura.pillarMesh.position.y = aura.baseY + t * 1.65;
+        aura.pillarMesh.scale.set(1.0 + easeOut * 0.42, 0.55 + easeOut * 0.95, 1.0 + easeOut * 0.42);
+        aura.pillarMat.opacity = Math.max(0, fade * 0.52);
+      }
+
+      for (const gm of goldenMotePool) {
+        if (!gm.active) continue;
+        gm.age += dt;
+        const t = gm.age / gm.life;
+        if (t >= 1) {
+          gm.active = false;
+          gm.sprite.visible = false;
+          continue;
+        }
+        const curAng = gm.angle + gm.age * gm.angSpeed;
+        const curRad = gm.radius * (1.0 + t * 0.35);
+        gm.sprite.position.set(
+          gm.centerX + Math.cos(curAng) * curRad,
+          gm.baseY + gm.age * gm.vy,
+          gm.centerZ + Math.sin(curAng) * curRad,
+        );
+        const fade = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+        gm.sprite.scale.setScalar(gm.baseScale * (1.0 + t * 0.45));
+        gm.mat.opacity = Math.max(0, fade * 0.92);
       }
     },
     spawnVfxBurst,
